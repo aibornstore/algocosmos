@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Pong Online</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; }
+        #lobby { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; z-index: 10; }
+        #lobby h1 { font-size: 48px; color: #ffffff; text-shadow: 0 0 20px #ffffff; margin-bottom: 20px; }
+        #lobby input { padding: 10px 20px; font-size: 16px; border: 2px solid #fff; background: #1a1a2a; color: white; border-radius: 5px; margin: 10px; }
+        #lobby button { padding: 15px 40px; font-size: 18px; background: linear-gradient(135deg, #ffffff, #888888); border: none; border-radius: 10px; color: #0a0a1a; cursor: pointer; margin: 10px; font-weight: bold; }
+        #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #fff; font-size: 28px; text-shadow: 0 0 10px #fff; }
+        #brand { position: absolute; bottom: 20px; right: 20px; color: #8844ff; font-size: 14px; opacity: 0.7; }
+        #status { position: absolute; top: 60px; width: 100%; text-align: center; color: #888; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div id="lobby">
+        <h1>ALGOKOSMOS</h1>
+        <p style="color:#888;margin-bottom:20px;">Pong Online — 1v1 дуэль!</p>
+        <input type="text" id="roomCode" placeholder="Код комнаты">
+        <br>
+        <button onclick="createRoom()">Создать комнату</button>
+        <button onclick="joinRoom()">Войти</button>
+    </div>
+    <div id="ui"><span id="score">0 : 0</span></div>
+    <div id="status"></div>
+    <div id="brand">ALGOKOSMOS.COM</div>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let gameRunning = false, ws = null, myId = null, mySide = null, roomCode = '';
+
+        const WIN_SCORE = 7;
+        const paddleW = 12, paddleH = 80;
+        const p1 = { y: 0, score: 0 };
+        const p2 = { y: 0, score: 0 };
+        const ball = { x: 0, y: 0, r: 8, dx: 5, dy: 3 };
+
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        function resetBall() { ball.x = canvas.width / 2; ball.y = canvas.height / 2; ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1); ball.dy = 3 * (Math.random() > 0.5 ? 1 : -1); }
+
+        function draw() {
+            ctx.fillStyle = '#0a0a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Center line
+            ctx.setLineDash([10, 10]); ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(canvas.width / 2, 0); ctx.lineTo(canvas.width / 2, canvas.height); ctx.stroke();
+            ctx.setLineDash([]);
+            // Paddles
+            ctx.shadowBlur = 15;
+            ctx.fillStyle = '#00ffff'; ctx.shadowColor = '#00ffff';
+            ctx.fillRect(30, p1.y, paddleW, paddleH);
+            ctx.fillStyle = '#ff00ff'; ctx.shadowColor = '#ff00ff';
+            ctx.fillRect(canvas.width - 30 - paddleW, p2.y, paddleW, paddleH);
+            // Ball
+            ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 20;
+            ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        function update() {
+            if (mySide === 'left') {
+                p1.y += myDy;
+                p1.y = Math.max(0, Math.min(canvas.height - paddleH, p1.y));
+                send({ type: 'move', game: 'pong', room: roomCode, data: { action: 'paddle', y: p1.y } });
+            } else {
+                p2.y += myDy;
+                p2.y = Math.max(0, Math.min(canvas.height - paddleH, p2.y));
+                send({ type: 'move', game: 'pong', room: roomCode, data: { action: 'paddle', y: p2.y } });
+            }
+            // Ball movement (host only)
+            if (mySide === 'left') {
+                ball.x += ball.dx; ball.y += ball.dy;
+                if (ball.y - ball.r < 0 || ball.y + ball.r > canvas.height) ball.dy *= -1;
+                // Paddle collision
+                if (ball.x - ball.r < 42 && ball.y > p1.y && ball.y < p1.y + paddleH) {
+                    ball.dx = Math.abs(ball.dx) * 1.05;
+                    ball.x = 42 + ball.r;
+                }
+                if (ball.x + ball.r > canvas.width - 42 && ball.y > p2.y && ball.y < p2.y + paddleH) {
+                    ball.dx = -Math.abs(ball.dx) * 1.05;
+                    ball.x = canvas.width - 42 - ball.r;
+                }
+                // Score
+                if (ball.x < 0) { p2.score++; resetBall(); }
+                if (ball.x > canvas.width) { p1.score++; resetBall(); }
+                document.getElementById('score').textContent = p1.score + ' : ' + p2.score;
+                send({ type: 'move', game: 'pong', room: roomCode, data: { action: 'ball', x: ball.x, y: ball.y, dx: ball.dx, dy: ball.dy, s1: p1.score, s2: p2.score } });
+                if (p1.score >= WIN_SCORE || p2.score >= WIN_SCORE) {
+                    alert('Победитель: ' + (p1.score >= WIN_SCORE ? 'Ты' : 'Противник'));
+                    p1.score = 0; p2.score = 0; resetBall();
+                }
+            }
+        }
+
+        let myDy = 0;
+        function gameLoop() { if (!gameRunning) return; draw(); update(); requestAnimationFrame(gameLoop); }
+
+        // WebSocket
+        function connect() {
+            ws = new WebSocket(`ws://${location.hostname}:3000`);
+            ws.onopen = () => console.log('Connected');
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                switch(msg.type) {
+                    case 'joined':
+                        myId = msg.playerId;
+                        mySide = msg.players.length === 1 ? 'left' : 'right';
+                        document.getElementById('status').textContent = `Комната: ${roomCode} | Ты: ${mySide === 'left' ? 'Левый' : 'Правый'} | Ожидание...`;
+                        if (msg.players.length === 2) startGame();
+                        break;
+                    case 'player_joined':
+                        if (msg.playerCount === 2) startGame();
+                        break;
+                    case 'move':
+                        if (msg.playerId !== myId) handleEnemyMove(msg.data);
+                        break;
+                }
+            };
+        }
+
+        function handleEnemyMove(data) {
+            if (data.action === 'paddle') {
+                if (mySide === 'left') p2.y = data.y; else p1.y = data.y;
+            } else if (data.action === 'ball') {
+                ball.x = data.x; ball.y = data.y; ball.dx = data.dx; ball.dy = data.dy;
+                p1.score = data.s1; p2.score = data.s2;
+                document.getElementById('score').textContent = p1.score + ' : ' + p2.score;
+            }
+        }
+
+        function send(msg) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
+
+        function createRoom() {
+            roomCode = document.getElementById('roomCode').value || Math.random().toString(36).substr(2, 6);
+            connect(); setTimeout(() => send({ type: 'join', game: 'pong', room: roomCode }), 500);
+            document.getElementById('lobby').style.display = 'none';
+        }
+        function joinRoom() {
+            roomCode = document.getElementById('roomCode').value;
+            if (!roomCode) { alert('Введите код комнаты'); return; }
+            connect(); setTimeout(() => send({ type: 'join', game: 'pong', room: roomCode }), 500);
+            document.getElementById('lobby').style.display = 'none';
+        }
+
+        function startGame() {
+            p1.y = canvas.height / 2 - paddleH / 2;
+            p2.y = canvas.height / 2 - paddleH / 2;
+            resetBall(); gameRunning = true;
+            document.getElementById('status').textContent = 'Игра началась!';
+            gameLoop();
+        }
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'ArrowUp' || e.key === 'w') myDy = -6;
+            if (e.key === 'ArrowDown' || e.key === 's') myDy = 6;
+        });
+        document.addEventListener('keyup', e => { if (['ArrowUp','ArrowDown','w','s'].includes(e.key)) myDy = 0; });
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); myDy = (e.touches[0].clientY < canvas.height / 2) ? -6 : 6; });
+        canvas.addEventListener('touchend', () => myDy = 0);
+
+        window.addEventListener('resize', resize); resize();
+    </script>
+</body>
+</html>

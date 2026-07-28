@@ -1,11 +1,13 @@
 {
   "name": "algocosmos-games",
-  "version": "1.0.0",
-  "description": "ALGOKOSMOS.COM - открытая платформа игр",
-  "main": "engine/src/index.js",
+  "version": "1.1.0",
+  "description": "ALGOKOSMOS.COM - открытая платформа игр с мультиплеером",
+  "main": "server/index.js",
   "scripts": {
-    "dev": "live-server games/",
-    "build": "echo 'Build scripts coming soon'"
+    "start": "node server/index.js",
+    "dev": "concurrently \"node server/index.js\" \"live-server games/\"",
+    "games": "live-server games/",
+    "server": "node server/index.js"
   },
   "repository": {
     "type": "git",
@@ -14,14 +16,20 @@
   "keywords": [
     "games",
     "retro",
-    "arkanoid",
-    "snake",
+    "multiplayer",
     "tetris",
+    "pong",
+    "snake",
     "algocosmos"
   ],
   "author": "ALGOKOSMOS.COM",
   "license": "MIT",
+  "dependencies": {
+    "ws": "^8.16.0",
+    "uuid": "^9.0.0"
+  },
   "devDependencies": {
-    "live-server": "^1.2.2"
+    "live-server": "^1.2.2",
+    "concurrently": "^8.2.2"
   }
 }

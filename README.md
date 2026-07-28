@@ -8,17 +8,24 @@
 
 ## Игры
 
-| Игра | Платформа | Статус |
-|------|-----------|--------|
-| Arkanoid | Web | ✅ Ready |
-| Snake | Web | ✅ Ready |
-| Tetris | Web | ✅ Ready |
-| Space Invaders | Web | ✅ Ready |
-| Doodle Jump | Web | ✅ Ready |
-| Pong | Web | ✅ Ready |
-| Breakout | Web | ✅ Ready |
-| Flappy Bird | Web | ✅ Ready |
-| FPS Shooter | Web (Three.js) | Planned |
+### Оффлайн
+| Игра | Статус |
+|------|--------|
+| Arkanoid | ✅ Ready |
+| Breakout | ✅ Ready |
+| Space Invaders | ✅ Ready |
+| Doodle Jump | ✅ Ready |
+| Flappy Bird | ✅ Ready |
+
+### Мультиплеер (2+ игроков)
+| Игра | Режим | Статус |
+|------|-------|--------|
+| Tetris Battle | 1v1 | ✅ Ready |
+| Pong Online | 1v1 | ✅ Ready |
+| Snake Arena | 20+ игроков | ✅ Ready |
+| Snake | Singleplayer | ✅ Ready |
+| Tetris | Singleplayer | ✅ Ready |
+| Pong | Local 2P | ✅ Ready |
 
 ## Технологии
 

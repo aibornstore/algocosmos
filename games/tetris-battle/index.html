@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Tetris Battle</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
+        #lobby { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; z-index: 10; }
+        #lobby h1 { font-size: 48px; color: #ff00ff; text-shadow: 0 0 20px #ff00ff; margin-bottom: 20px; }
+        #lobby input { padding: 10px 20px; font-size: 16px; border: 2px solid #ff00ff; background: #1a0a2a; color: white; border-radius: 5px; margin: 10px; }
+        #lobby button { padding: 15px 40px; font-size: 18px; background: linear-gradient(135deg, #ff00ff, #ff0066); border: none; border-radius: 10px; color: white; cursor: pointer; margin: 10px; }
+        #lobby button:hover { transform: scale(1.05); }
+        #gameContainer { display: none; gap: 20px; justify-content: center; padding: 20px; }
+        .board { border: 2px solid #333; }
+        #myBoard { border-color: #ff00ff; }
+        #enemyBoard { border-color: #00ffff; }
+        #sidePanel { color: white; width: 150px; }
+        #sidePanel div { margin-bottom: 10px; }
+        #brand { position: fixed; bottom: 10px; right: 10px; color: #8844ff; font-size: 12px; opacity: 0.5; }
+        #status { position: fixed; top: 10px; width: 100%; text-align: center; color: #888; font-size: 14px; }
+        .player-label { color: #ff00ff; font-size: 14px; margin-bottom: 5px; }
+        .enemy-label { color: #00ffff; font-size: 14px; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div id="lobby">
+        <h1>ALGOKOSMOS</h1>
+        <p style="color:#888;margin-bottom:20px;">Tetris Battle — 1v1 дуэль!</p>
+        <input type="text" id="playerName" placeholder="Твоё имя" value="Игрок">
+        <input type="text" id="roomCode" placeholder="Код комнаты">
+        <br>
+        <button onclick="createRoom()">Создать комнату</button>
+        <button onclick="joinRoom()">Войти</button>
+    </div>
+    <div id="status"></div>
+    <div id="gameContainer">
+        <div>
+            <div class="player-label">Ты</div>
+            <canvas id="myBoard" class="board" width="250" height="500"></canvas>
+        </div>
+        <div id="sidePanel">
+            <div>Счёт: <span id="myScore" style="color:#ff00ff">0</span></div>
+            <div>Уровень: <span id="myLevel" style="color:#ff00ff">1</span></div>
+            <div style="margin-top:20px;">Противник:</div>
+            <div>Счёт: <span id="enemyScore" style="color:#00ffff">0</span></div>
+            <div>Уровень: <span id="enemyLevel" style="color:#00ffff">1</span></div>
+            <div style="margin-top:20px;">Следующая:</div>
+            <canvas id="nextPiece" width="80" height="80" style="border:1px solid #333;background:#111;"></canvas>
+        </div>
+        <div>
+            <div class="enemy-label">Противник</div>
+            <canvas id="enemyBoard" class="board" width="250" height="500"></canvas>
+        </div>
+    </div>
+    <div id="brand">ALGOKOSMOS.COM</div>
+
+    <script>
+        // Game state
+        const GRID = 25;
+        const COLS = 10;
+        const ROWS = 20;
+        let myBoard = [], enemyBoard = [];
+        let myPiece = null, nextPiece = null;
+        let myScore = 0, myLevel = 1;
+        let enemyScore = 0, enemyLevel = 1;
+        let gameRunning = false;
+        let ws = null;
+        let myId = null;
+        let roomCode = '';
+
+        // Tetrominoes
+        const SHAPES = [
+            [[1,1,1,1]],
+            [[1,1],[1,1]],
+            [[0,1,0],[1,1,1]],
+            [[1,0,0],[1,1,1]],
+            [[0,0,1],[1,1,1]],
+            [[0,1,1],[1,1,0]],
+            [[1,1,0],[0,1,1]]
+        ];
+        const COLORS = ['#00ffff','#ffff00','#aa00ff','#ff6600','#0066ff','#00ff00','#ff0000'];
+
+        function initBoard() {
+            return Array(ROWS).fill(null).map(() => Array(COLS).fill(0));
+        }
+
+        function newPiece() {
+            const i = Math.floor(Math.random() * SHAPES.length);
+            return { shape: SHAPES[i].map(r => [...r]), color: COLORS[i], x: 3, y: 0 };
+        }
+
+        function drawBoard(board, canvasId, isEnemy = false) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, 250, 500);
+            
+            // Grid
+            ctx.strokeStyle = '#222';
+            for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) {
+                ctx.strokeRect(x * GRID, y * GRID, GRID, GRID);
+            }
+            
+            // Placed blocks
+            for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+                if (board[y][x]) {
+                    ctx.fillStyle = board[y][x];
+                    ctx.fillRect(x * GRID, y * GRID, GRID - 1, GRID - 1);
+                }
+            }
+        }
+
+        function drawPiece() {
+            if (!myPiece) return;
+            const ctx = document.getElementById('myBoard').getContext('2d');
+            ctx.fillStyle = myPiece.color;
+            myPiece.shape.forEach((row, y) => {
+                row.forEach((cell, x) => {
+                    if (cell) ctx.fillRect((myPiece.x + x) * GRID, (myPiece.y + y) * GRID, GRID - 1, GRID - 1);
+                });
+            });
+        }
+
+        function drawNextPiece() {
+            if (!nextPiece) return;
+            const ctx = document.getElementById('nextPiece').getContext('2d');
+            ctx.fillStyle = '#111'; ctx.fillRect(0, 0, 80, 80);
+            ctx.fillStyle = nextPiece.color;
+            nextPiece.shape.forEach((row, y) => {
+                row.forEach((cell, x) => {
+                    if (cell) ctx.fillRect(x * 18 + 5, y * 18 + 5, 17, 17);
+                });
+            });
+        }
+
+        function collision(piece, board, dx, dy) {
+            for (let y = 0; y < piece.shape.length; y++) {
+                for (let x = 0; x < piece.shape[y].length; x++) {
+                    if (piece.shape[y][x]) {
+                        const nx = piece.x + x + dx;
+                        const ny = piece.y + y + dy;
+                        if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
+                        if (ny >= 0 && board[ny][nx]) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function mergePiece() {
+            myPiece.shape.forEach((row, y) => {
+                row.forEach((cell, x) => {
+                    if (cell) myBoard[myPiece.y + y][myPiece.x + x] = myPiece.color;
+                });
+            });
+        }
+
+        function clearLines() {
+            let cleared = 0;
+            for (let y = ROWS - 1; y >= 0; y--) {
+                if (myBoard[y].every(c => c !== 0)) {
+                    myBoard.splice(y, 1);
+                    myBoard.unshift(Array(COLS).fill(0));
+                    cleared++; y++;
+                }
+            }
+            if (cleared > 0) {
+                myScore += cleared * 100 * myLevel;
+                myLevel = Math.floor(myScore / 1000) + 1;
+                document.getElementById('myScore').textContent = myScore;
+                document.getElementById('myLevel').textContent = myLevel;
+                // Send garbage to enemy
+                if (cleared >= 2) {
+                    send({ type: 'move', game: 'tetris', room: roomCode, data: { action: 'garbage', lines: cleared - 1 } });
+                }
+            }
+        }
+
+        function addGarbage(lines) {
+            for (let i = 0; i < lines; i++) {
+                myBoard.shift();
+                const garbage = Array(COLS).fill('#888');
+                const hole = Math.floor(Math.random() * COLS);
+                garbage[hole] = 0;
+                myBoard.push(garbage);
+            }
+        }
+
+        function drop() {
+            if (!collision(myPiece, myBoard, 0, 1)) {
+                myPiece.y++;
+            } else {
+                mergePiece();
+                clearLines();
+                myPiece = nextPiece;
+                nextPiece = newPiece();
+                if (collision(myPiece, myBoard, 0, 0)) {
+                    gameRunning = false;
+                    send({ type: 'move', game: 'tetris', room: roomCode, data: { action: 'gameover', score: myScore } });
+                    alert('Поражение! Счёт: ' + myScore);
+                }
+            }
+        }
+
+        function rotate() {
+            const rotated = myPiece.shape[0].map((_, i) => myPiece.shape.map(row => row[i]).reverse());
+            const orig = myPiece.shape;
+            myPiece.shape = rotated;
+            if (collision(myPiece, myBoard, 0, 0)) myPiece.shape = orig;
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+            drawBoard(myBoard, 'myBoard');
+            drawBoard(enemyBoard, 'enemyBoard', true);
+            drawPiece();
+            drawNextPiece();
+            drop();
+            // Send state
+            send({ type: 'move', game: 'tetris', room: roomCode, data: { action: 'state', board: myBoard, score: myScore, level: myLevel } });
+            setTimeout(gameLoop, Math.max(100, 800 - (myLevel - 1) * 50));
+        }
+
+        // WebSocket
+        function connect() {
+            ws = new WebSocket(`ws://${location.hostname}:3000`);
+            ws.onopen = () => console.log('Connected');
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                switch(msg.type) {
+                    case 'joined':
+                        myId = msg.playerId;
+                        document.getElementById('status').textContent = `Комната: ${roomCode} | Игроки: ${msg.players.length}/2`;
+                        if (msg.players.length === 2) startGame();
+                        break;
+                    case 'player_joined':
+                        document.getElementById('status').textContent = `Комната: ${roomCode} | Игроки: ${msg.playerCount}/2`;
+                        if (msg.playerCount === 2) startGame();
+                        break;
+                    case 'player_left':
+                        document.getElementById('status').textContent = `Комната: ${roomCode} | Игроки: ${msg.playerCount}/2`;
+                        break;
+                    case 'move':
+                        if (msg.playerId !== myId) handleEnemyMove(msg.data);
+                        break;
+                }
+            };
+        }
+
+        function handleEnemyMove(data) {
+            if (data.action === 'state') {
+                enemyBoard = data.board;
+                enemyScore = data.score;
+                enemyLevel = data.level;
+                document.getElementById('enemyScore').textContent = enemyScore;
+                document.getElementById('enemyLevel').textContent = enemyLevel;
+            } else if (data.action === 'garbage') {
+                addGarbage(data.lines);
+            } else if (data.action === 'gameover') {
+                gameRunning = false;
+                alert('Победа! Счёт: ' + myScore);
+            }
+        }
+
+        function send(msg) {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+        }
+
+        function createRoom() {
+            roomCode = document.getElementById('roomCode').value || Math.random().toString(36).substr(2, 6);
+            connect();
+            setTimeout(() => send({ type: 'join', game: 'tetris', room: roomCode }), 500);
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('gameContainer').style.display = 'flex';
+        }
+
+        function joinRoom() {
+            roomCode = document.getElementById('roomCode').value;
+            if (!roomCode) { alert('Введите код комнаты'); return; }
+            connect();
+            setTimeout(() => send({ type: 'join', game: 'tetris', room: roomCode }), 500);
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('gameContainer').style.display = 'flex';
+        }
+
+        function startGame() {
+            myBoard = initBoard();
+            enemyBoard = initBoard();
+            myPiece = newPiece();
+            nextPiece = newPiece();
+            myScore = 0; myLevel = 1;
+            document.getElementById('myScore').textContent = 0;
+            document.getElementById('myLevel').textContent = 1;
+            gameRunning = true;
+            document.getElementById('status').textContent = 'Игра началась!';
+            gameLoop();
+        }
+
+        // Controls
+        document.addEventListener('keydown', (e) => {
+            if (!gameRunning || !myPiece) return;
+            switch(e.key) {
+                case 'ArrowLeft': case 'a': if (!collision(myPiece, myBoard, -1, 0)) myPiece.x--; break;
+                case 'ArrowRight': case 'd': if (!collision(myPiece, myBoard, 1, 0)) myPiece.x++; break;
+                case 'ArrowDown': case 's': drop(); break;
+                case 'ArrowUp': case 'w': rotate(); break;
+                case ' ': while (!collision(myPiece, myBoard, 0, 1)) { myPiece.y++; myScore += 2; } drop(); break;
+            }
+        });
+    </script>
+</body>
+</html>
