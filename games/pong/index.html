@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Pong</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; }
+        #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #fff; font-size: 24px; text-shadow: 0 0 10px #fff; }
+        #brand { position: absolute; bottom: 20px; right: 20px; color: #8844ff; font-size: 14px; opacity: 0.7; }
+        #startScreen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; }
+        #startScreen h1 { font-size: 48px; color: #ffffff; text-shadow: 0 0 20px #ffffff; margin-bottom: 20px; }
+        #startBtn { padding: 15px 40px; font-size: 20px; background: linear-gradient(135deg, #ffffff, #888888); border: none; border-radius: 10px; color: #0a0a1a; cursor: pointer; font-weight: bold; }
+        #startBtn:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+    <div id="ui"><span id="score">0 : 0</span></div>
+    <div id="brand">ALGOKOSMOS.COM</div>
+    <div id="startScreen">
+        <h1>ALGOKOSMOS</h1>
+        <p style="color:#888;margin-bottom:30px;">Pong — дуэль на двоих</p>
+        <button id="startBtn">НАЧАТЬ</button>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let gameRunning = false;
+        let score1 = 0, score2 = 0;
+        const WIN_SCORE = 7;
+
+        const paddleW = 12, paddleH = 80;
+        const p1 = { x: 30, y: 0, score: 0, dy: 0 };
+        const p2 = { x: 0, y: 0, score: 0, dy: 0 };
+        const ball = { x: 0, y: 0, r: 8, dx: 5, dy: 3 };
+
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; p2.x = canvas.width - 30 - paddleW; }
+        function resetBall() { ball.x = canvas.width / 2; ball.y = canvas.height / 2; ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1); ball.dy = 3 * (Math.random() > 0.5 ? 1 : -1); }
+
+        function draw() {
+            ctx.fillStyle = '#0a0a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Center line
+            ctx.setLineDash([10, 10]); ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(canvas.width / 2, 0); ctx.lineTo(canvas.width / 2, canvas.height); ctx.stroke();
+            ctx.setLineDash([]);
+            // Paddles
+            ctx.shadowColor = '#00ffff'; ctx.shadowBlur = 15;
+            ctx.fillStyle = '#00ffff'; ctx.fillRect(p1.x, p1.y, paddleW, paddleH);
+            ctx.fillStyle = '#ff00ff'; ctx.fillRect(p2.x, p2.y, paddleW, paddleH);
+            // Ball
+            ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 20;
+            ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        function update() {
+            p1.y += p1.dy; p2.y += p2.dy;
+            p1.y = Math.max(0, Math.min(canvas.height - paddleH, p1.y));
+            p2.y = Math.max(0, Math.min(canvas.height - paddleH, p2.y));
+            ball.x += ball.dx; ball.y += ball.dy;
+            if (ball.y - ball.r < 0 || ball.y + ball.r > canvas.height) ball.dy *= -1;
+            // Paddle collision
+            if (ball.x - ball.r < p1.x + paddleW && ball.y > p1.y && ball.y < p1.y + paddleH) { ball.dx *= -1.05; ball.x = p1.x + paddleW + ball.r; }
+            if (ball.x + ball.r > p2.x && ball.y > p2.y && ball.y < p2.y + paddleH) { ball.dx *= -1.05; ball.x = p2.x - ball.r; }
+            // Score
+            if (ball.x < 0) { p2.score++; resetBall(); }
+            if (ball.x > canvas.width) { p1.score++; resetBall(); }
+            document.getElementById('score').textContent = p1.score + ' : ' + p2.score;
+            if (p1.score >= WIN_SCORE || p2.score >= WIN_SCORE) { alert('Победитель: ' + (p1.score >= WIN_SCORE ? 'Игрок 1' : 'Игрок 2')); p1.score = 0; p2.score = 0; resetBall(); }
+        }
+
+        function loop() { if (!gameRunning) return; draw(); update(); requestAnimationFrame(loop); }
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'w' || e.key === 'W') p1.dy = -6;
+            if (e.key === 's' || e.key === 'S') p1.dy = 6;
+            if (e.key === 'ArrowUp') p2.dy = -6;
+            if (e.key === 'ArrowDown') p2.dy = 6;
+        });
+        document.addEventListener('keyup', e => {
+            if (e.key === 'w' || e.key === 's' || e.key === 'W' || e.key === 'S') p1.dy = 0;
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') p2.dy = 0;
+        });
+        // AI for player 2
+        function aiLoop() { if (!gameRunning) return; const target = ball.y - paddleH / 2; p2.dy = (target - p2.y) * 0.06; requestAnimationFrame(aiLoop); }
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            document.getElementById('startScreen').style.display = 'none'; resize(); resetBall(); gameRunning = true; loop(); aiLoop();
+        });
+        window.addEventListener('resize', resize); resize();
+    </script>
+</body>
+</html>

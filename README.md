@@ -15,6 +15,9 @@
 | Tetris | Web | ✅ Ready |
 | Space Invaders | Web | ✅ Ready |
 | Doodle Jump | Web | ✅ Ready |
+| Pong | Web | ✅ Ready |
+| Breakout | Web | ✅ Ready |
+| Flappy Bird | Web | ✅ Ready |
 | FPS Shooter | Web (Three.js) | Planned |
 
 ## Технологии
