@@ -10,10 +10,11 @@
 
 | Игра | Платформа | Статус |
 |------|-----------|--------|
-| Arkanoid | Web (Three.js) | In Development |
-| Snake | Web | In Development |
-| Tetris | Web | In Development |
-| Space Invaders | Web | Planned |
+| Arkanoid | Web | ✅ Ready |
+| Snake | Web | ✅ Ready |
+| Tetris | Web | ✅ Ready |
+| Space Invaders | Web | ✅ Ready |
+| Doodle Jump | Web | ✅ Ready |
 | FPS Shooter | Web (Three.js) | Planned |
 
 ## Технологии
