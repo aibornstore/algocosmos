@@ -4,7 +4,6 @@ node_modules/
 dist/
 build/
 .env
-games/claude-of-duty/
 js13k-study/LittleJS/
 js13k-study/OS13k/
 js13k-study/minipunk/
