@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Prince of Persia</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a1a;
+            overflow: hidden;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        #gameCanvas { display: block; }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #ffcc00;
+            font-size: 16px;
+            text-shadow: 0 0 8px #ffcc00;
+            pointer-events: none;
+        }
+        #ui div { margin-bottom: 4px; }
+        #brand {
+            position: absolute;
+            bottom: 10px;
+            right: 15px;
+            color: #8844ff;
+            font-size: 12px;
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        #startScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+            z-index: 10;
+        }
+        #startScreen h1 {
+            font-size: 42px;
+            color: #ffcc00;
+            text-shadow: 0 0 20px #ffcc00, 0 0 40px #ff8800;
+            margin-bottom: 10px;
+        }
+        #startScreen h2 {
+            font-size: 22px;
+            color: #ff8800;
+            margin-bottom: 25px;
+        }
+        #startScreen p {
+            color: #888;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        #startBtn {
+            padding: 12px 35px;
+            font-size: 18px;
+            background: linear-gradient(135deg, #ffcc00, #ff8800);
+            border: none;
+            border-radius: 8px;
+            color: #0a0a1a;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        #startBtn:hover { transform: scale(1.08); }
+        .controls-info {
+            color: #666;
+            font-size: 12px;
+            margin-top: 20px;
+            line-height: 1.6;
+        }
+        #gameOverScreen, #winScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+            z-index: 10;
+            display: none;
+        }
+        #gameOverScreen h1 { color: #ff3333; font-size: 36px; margin-bottom: 15px; }
+        #winScreen h1 { color: #00ff88; font-size: 36px; margin-bottom: 15px; }
+        .retry-btn {
+            padding: 10px 30px;
+            font-size: 16px;
+            background: linear-gradient(135deg, #ffcc00, #ff8800);
+            border: none;
+            border-radius: 8px;
+            color: #0a0a1a;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>Время: <span id="timer">60:00</span></div>
+        <div>Жизни: <span id="lives">3</span></div>
+        <div>Уровень: <span id="level">1</span></div>
+        <div>Меч: <span id="sword">нет</span></div>
+    </div>
+    <div id="brand">ALGOKOSMOS.COM</div>
+
+    <div id="startScreen">
+        <h1>PRINCE OF PERSIA</h1>
+        <h2>ALGOKOSMOS Edition</h2>
+        <p>Принц должен спасти принцессу до истечения 60 минут!</p>
+        <p>Пройдите все уровни, избегайте ловушек, сражайтесь с охраной.</p>
+        <button id="startBtn">НАЧАТЬ ИГРУ</button>
+        <div class="controls-info">
+            ← → движение &nbsp;|&nbsp; ↑ прыжок/подъём &nbsp;|&nbsp; ↓ присесть<br>
+            M — меч (атака) &nbsp;|&nbsp; Shift+←/→ — осторожный шаг
+        </div>
+    </div>
+
+    <div id="gameOverScreen">
+        <h1>ПОРАЖЕНИЕ</h1>
+        <p id="deathReason">Время вышло!</p>
+        <button class="retry-btn" onclick="restartGame()">ЗАНОВО</button>
+    </div>
+
+    <div id="winScreen">
+        <h1>ПОБЕДА!</h1>
+        <p>Принцесса спасена! Осталось времени: <span id="winTime"></span></p>
+        <button class="retry-btn" onclick="restartGame">ИГРАТЬ СНОВА</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+// ===== ENGINE =====
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const TILE = 48;
+let COLS, ROWS;
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    COLS = Math.ceil(canvas.width / TILE);
+    ROWS = Math.ceil(canvas.height / TILE);
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ===== GAME STATE =====
+let gameRunning = false;
+let gameTime = 3600; // 60 min in seconds
+let lives = 3;
+let currentLevel = 0;
+let hasSword = false;
+let keys = {};
+let camera = { x: 0, y: 0 };
+let animFrame = 0;
+let particles = [];
+
+// ===== LEVEL DATA =====
+// Tile types: 0=air, 1=floor, 2=wall, 3=spikes, 4=gate, 5=sword_pickup, 6=exit, 7=loose_floor, 8=pillar
+const levels = [
+    // Level 1 - Tutorial
+    {
+        name: "Темница",
+        width: 30,
+        height: 12,
+        playerStart: { x: 2, y: 9 },
+        tiles: [
+            [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,1,1,1,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,1,1,1,6,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,3,3,0,0,0,0,2],
+            [2,1,1,1,1,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,0,0,0,0,2],
+            [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+        ],
+        guards: [
+            { x: 10, y: 9, dir: -1, hp: 2 },
+            { x: 20, y: 9, dir: -1, hp: 2 },
+        ]
+    },
+    // Level 2 - Palace
+    {
+        name: "Дворец",
+        width: 35,
+        height: 12,
+        playerStart: { x: 2, y: 9 },
+        tiles: [
+            [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,6,2],
+            [2,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,3,3,0,0,0,0,0,2],
+            [2,1,1,1,1,0,0,0,1,1,1,1,1,1,0,0,0,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,0,0,2],
+            [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+        ],
+        guards: [
+            { x: 12, y: 9, dir: -1, hp: 3 },
+            { x: 22, y: 7, dir: -1, hp: 3 },
+            { x: 30, y: 9, dir: -1, hp: 2 },
+        ]
+    },
+    // Level 3 - Tower
+    {
+        name: "Башня",
+        width: 40,
+        height: 14,
+        playerStart: { x: 2, y: 11 },
+        tiles: [
+            [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],
+            [2,1,1,1,0,0,0,0,0,1,1,0,0,0,0,1,1,1,0,0,0,1,1,0,0,0,0,1,1,1,0,0,0,1,1,0,0,0,0,2],
+            [2,0,0,0,0,3,3,3,0,0,0,0,3,3,0,0,0,0,0,3,3,0,0,0,3,3,0,0,0,0,0,3,3,0,0,0,3,3,6,2],
+            [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+        ],
+        guards: [
+            { x: 9, y: 11, dir: -1, hp: 3 },
+            { x: 17, y: 11, dir: -1, hp: 3 },
+            { x: 25, y: 11, dir: -1, hp: 4 },
+            { x: 33, y: 11, dir: -1, hp: 3 },
+        ],
+        swords: [{ x: 15, y: 10 }]
+    }
+];
+
+// ===== PLAYER =====
+let player = {
+    x: 0, y: 0,
+    vx: 0, vy: 0,
+    width: 0.7, height: 1.8,
+    onGround: false,
+    facing: 1,
+    state: 'idle', // idle, run, jump, fall, crouch, climb, fight, die
+    frame: 0,
+    frameTimer: 0,
+    attacking: false,
+    attackTimer: 0,
+    hp: 3,
+    invincible: 0,
+    climbing: false
+};
+
+// ===== GUARDS =====
+let guards = [];
+
+// ===== GUARD AI =====
+function updateGuard(g, dt) {
+    if (g.dead) return;
+    g.animTimer = (g.animTimer || 0) + dt;
+
+    // Simple patrol AI
+    const dx = player.x - g.x;
+    const dy = player.y - g.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 8 && !player.dead) {
+        // Chase player
+        g.state = 'chase';
+        if (Math.abs(dx) > 1.5) {
+            g.x += Math.sign(dx) * 2.5 * dt;
+            g.facing = Math.sign(dx);
+        } else if (Math.abs(dx) < 1.5 && Math.abs(dy) < 2) {
+            // Attack
+            if (!g.attacking && g.animTimer > 0.8) {
+                g.attacking = true;
+                g.attackTimer = 0.4;
+                g.animTimer = 0;
+            }
+        }
+    } else {
+        // Patrol
+        g.state = 'patrol';
+        g.x += g.dir * 1.2 * dt;
+        if (g.animTimer > 3) {
+            g.dir *= -1;
+            g.facing = g.dir;
+            g.animTimer = 0;
+        }
+    }
+
+    // Attack cooldown
+    if (g.attacking) {
+        g.attackTimer -= dt;
+        if (g.attackTimer <= 0) {
+            g.attacking = false;
+            // Check if hit player
+            if (dist < 2 && Math.abs(dy) < 2) {
+                hitPlayer();
+            }
+        }
+    }
+
+    // Gravity
+    g.vy = (g.vy || 0) + 600 * dt;
+    g.y += g.vy * dt;
+
+    // Floor collision
+    const tileBelow = getTile(g.x, g.y + 1);
+    if (tileBelow === 1 || tileBelow === 2 || tileBelow === 8) {
+        g.y = Math.floor(g.y + 1) - 0.01;
+        g.vy = 0;
+    }
+}
+
+function hitGuard(g) {
+    if (g.dead) return;
+    g.hp--;
+    // Knockback
+    g.x += player.facing * 1;
+    spawnParticles(g.x, g.hp <= 0 ? '#ff3333' : '#ffaa00', 5);
+    if (g.hp <= 0) {
+        g.dead = true;
+        spawnParticles(g.x, '#ff3333', 10);
+    }
+}
+
+function hitPlayer() {
+    if (player.invincible > 0 || player.dead) return;
+    player.hp--;
+    player.invincible = 1.5;
+    spawnParticles(player.x, '#ff3333', 5);
+    if (player.hp <= 0) {
+        player.dead = true;
+        player.state = 'die';
+        setTimeout(() => {
+            lives--;
+            if (lives <= 0) {
+                gameOver('Вы погибли!');
+            } else {
+                respawnPlayer();
+            }
+        }, 1000);
+    }
+}
+
+function respawnPlayer() {
+    const lvl = levels[currentLevel];
+    player.x = lvl.playerStart.x;
+    player.y = lvl.playerStart.y;
+    player.vx = 0;
+    player.vy = 0;
+    player.hp = 3;
+    player.dead = false;
+    player.state = 'idle';
+    player.invincible = 2;
+    player.onGround = false;
+}
+
+// ===== TILE HELPERS =====
+function getTile(tx, ty) {
+    const lvl = levels[currentLevel];
+    const gx = Math.floor(tx);
+    const gy = Math.floor(ty);
+    if (gx < 0 || gx >= lvl.width || gy < 0 || gy >= lvl.height) return 2;
+    return lvl.tiles[gy][gx];
+}
+
+function isSolid(tx, ty) {
+    const t = getTile(tx, ty);
+    return t === 1 || t === 2 || t === 8;
+}
+
+// ===== PARTICLES =====
+function spawnParticles(px, color, count) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x: px, y: player.y,
+            vx: (Math.random() - 0.5) * 200,
+            vy: (Math.random() - 0.5) * 200,
+            life: 0.5 + Math.random() * 0.5,
+            color: color,
+            size: 2 + Math.random() * 3
+        });
+    }
+}
+
+// ===== PLAYER PHYSICS =====
+function updatePlayer(dt) {
+    if (player.dead) return;
+
+    player.invincible = Math.max(0, player.invincible - dt);
+    player.frameTimer += dt;
+    if (player.frameTimer > 0.12) {
+        player.frame++;
+        player.frameTimer = 0;
+    }
+
+    const speed = keys['Shift'] ? 100 : 220;
+    const jumpForce = -380;
+
+    // Horizontal movement
+    player.vx = 0;
+    if (keys['ArrowLeft'] || keys['a']) {
+        player.vx = -speed;
+        player.facing = -1;
+        if (player.onGround) player.state = 'run';
+    } else if (keys['ArrowRight'] || keys['d']) {
+        player.vx = speed;
+        player.facing = 1;
+        if (player.onGround) player.state = 'run';
+    } else if (player.onGround) {
+        player.state = 'idle';
+    }
+
+    // Crouch
+    if ((keys['ArrowDown'] || keys['s']) && player.onGround) {
+        player.state = 'crouch';
+        player.vx = 0;
+    }
+
+    // Jump
+    if ((keys['ArrowUp'] || keys['w']) && player.onGround) {
+        player.vy = jumpForce;
+        player.onGround = false;
+        player.state = 'jump';
+    }
+
+    // Attack
+    if (keys['m'] && hasSword && !player.attacking) {
+        player.attacking = true;
+        player.attackTimer = 0.35;
+        player.state = 'fight';
+        // Check guard hits
+        guards.forEach(g => {
+            if (!g.dead && Math.abs(g.x - player.x) < 2 && Math.abs(g.y - player.y) < 2) {
+                hitGuard(g);
+            }
+        });
+    }
+
+    if (player.attacking) {
+        player.attackTimer -= dt;
+        if (player.attackTimer <= 0) player.attacking = false;
+    }
+
+    // Gravity
+    player.vy += 700 * dt;
+    player.y += player.vy * dt;
+    player.x += player.vx * dt;
+
+    // Floor collision
+    player.onGround = false;
+    const below = getTile(player.x, player.y + 0.1);
+    if (isSolid(player.x, player.y + 0.1)) {
+        player.y = Math.floor(player.y + 0.1) - 0.01;
+        player.vy = 0;
+        player.onGround = true;
+    }
+
+    // Wall collision
+    if (isSolid(player.x + player.width * 0.5, player.y - 0.5)) {
+        player.x = Math.floor(player.x + player.width * 0.5) - player.width * 0.5 - 0.01;
+    }
+    if (isSolid(player.x - player.width * 0.5, player.y - 0.5)) {
+        player.x = Math.ceil(player.x - player.width * 0.5) + player.width * 0.5 + 0.01;
+    }
+
+    // Ceiling
+    if (isSolid(player.x, player.y - player.height)) {
+        player.y = Math.ceil(player.y - player.height) + player.height;
+        player.vy = 0;
+    }
+
+    // Spikes
+    if (getTile(player.x, player.y) === 3) {
+        hitPlayer();
+        player.vy = -300;
+    }
+
+    // Sword pickup
+    const lvl = levels[currentLevel];
+    if (lvl.swords) {
+        lvl.swords = lvl.swords.filter(s => {
+            if (Math.abs(s.x - player.x) < 1 && Math.abs(s.y - player.y) < 2) {
+                hasSword = true;
+                document.getElementById('sword').textContent = 'есть';
+                spawnParticles(s.x, '#ffcc00', 8);
+                return false;
+            }
+            return true;
+        });
+    }
+
+    // Exit
+    if (getTile(player.x, player.y) === 6) {
+        nextLevel();
+    }
+
+    // Fall death
+    if (player.y > levels[currentLevel].height + 2) {
+        hitPlayer();
+        if (!player.dead) respawnPlayer();
+    }
+
+    // Update camera
+    const targetCamX = player.x * TILE - canvas.width / 2;
+    const targetCamY = player.y * TILE - canvas.height / 2;
+    camera.x += (targetCamX - camera.x) * 0.1;
+    camera.y += (targetCamY - camera.y) * 0.1;
+    camera.x = Math.max(0, Math.min(camera.x, levels[currentLevel].width * TILE - canvas.width));
+    camera.y = Math.max(0, Math.min(camera.y, levels[currentLevel].height * TILE - canvas.height));
+}
+
+// ===== LEVEL MANAGEMENT =====
+function loadLevel(idx) {
+    currentLevel = idx;
+    const lvl = levels[idx];
+    player.x = lvl.playerStart.x;
+    player.y = lvl.playerStart.y;
+    player.vx = 0;
+    player.vy = 0;
+    player.hp = 3;
+    player.dead = false;
+    player.state = 'idle';
+    player.onGround = false;
+    player.invincible = 2;
+
+    guards = lvl.guards.map(g => ({
+        ...g,
+        vx: 0, vy: 0,
+        state: 'patrol',
+        dead: false,
+        attacking: false,
+        attackTimer: 0,
+        animTimer: 0,
+        facing: g.dir
+    }));
+
+    document.getElementById('level').textContent = idx + 1;
+}
+
+function nextLevel() {
+    if (currentLevel + 1 >= levels.length) {
+        winGame();
+    } else {
+        loadLevel(currentLevel + 1);
+        spawnParticles(player.x, '#00ff88', 15);
+    }
+}
+
+// ===== DRAWING =====
+function drawTile(x, y, type) {
+    const sx = x * TILE - camera.x;
+    const sy = y * TILE - camera.y;
+    if (sx < -TILE || sx > canvas.width + TILE || sy < -TILE || sy > canvas.height + TILE) return;
+
+    switch (type) {
+        case 1: // Floor
+            ctx.fillStyle = '#4a3728';
+            ctx.fillRect(sx, sy, TILE, TILE);
+            ctx.fillStyle = '#5c4a3a';
+            ctx.fillRect(sx, sy, TILE, 4);
+            ctx.strokeStyle = '#3a2a1a';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(sx, sy, TILE, TILE);
+            break;
+        case 2: // Wall
+            ctx.fillStyle = '#3a3a4a';
+            ctx.fillRect(sx, sy, TILE, TILE);
+            ctx.fillStyle = '#4a4a5a';
+            ctx.fillRect(sx + 2, sy + 2, TILE - 4, TILE - 4);
+            ctx.strokeStyle = '#2a2a3a';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(sx, sy, TILE, TILE);
+            break;
+        case 3: // Spikes
+            ctx.fillStyle = '#4a3728';
+            ctx.fillRect(sx, sy + TILE * 0.6, TILE, TILE * 0.4);
+            ctx.fillStyle = '#cc3333';
+            for (let i = 0; i < 4; i++) {
+                ctx.beginPath();
+                ctx.moveTo(sx + i * 12 + 2, sy + TILE);
+                ctx.lineTo(sx + i * 12 + 6, sy + TILE * 0.3);
+                ctx.lineTo(sx + i * 12 + 10, sy + TILE);
+                ctx.fill();
+            }
+            break;
+        case 5: // Sword pickup
+            ctx.fillStyle = '#ffcc00';
+            ctx.shadowColor = '#ffcc00';
+            ctx.shadowBlur = 10;
+            ctx.save();
+            ctx.translate(sx + TILE / 2, sy + TILE / 2);
+            ctx.rotate(Math.PI / 4);
+            ctx.fillRect(-2, -15, 4, 30);
+            ctx.fillRect(-8, 10, 16, 4);
+            ctx.restore();
+            ctx.shadowBlur = 0;
+            break;
+        case 6: // Exit
+            ctx.fillStyle = '#00ff88';
+            ctx.shadowColor = '#00ff88';
+            ctx.shadowBlur = 15;
+            ctx.fillRect(sx + 8, sy, TILE - 16, TILE);
+            ctx.fillStyle = '#00cc66';
+            ctx.fillRect(sx + 12, sy + 4, TILE - 24, TILE - 8);
+            ctx.shadowBlur = 0;
+            // Glow pulse
+            const pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
+            ctx.fillStyle = `rgba(0, 255, 136, ${pulse * 0.2})`;
+            ctx.fillRect(sx, sy, TILE, TILE);
+            break;
+        case 7: // Loose floor
+            ctx.fillStyle = '#5a4030';
+            ctx.fillRect(sx, sy, TILE, TILE);
+            ctx.strokeStyle = '#3a2515';
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(sx + 4, sy + 4, TILE - 8, TILE - 8);
+            ctx.setLineDash([]);
+            break;
+        case 8: // Pillar
+            ctx.fillStyle = '#6a6a7a';
+            ctx.fillRect(sx + 8, sy, TILE - 16, TILE);
+            ctx.fillStyle = '#8a8a9a';
+            ctx.fillRect(sx + 4, sy, TILE - 8, 8);
+            ctx.fillRect(sx + 4, sy + TILE - 8, TILE - 8, 8);
+            break;
+    }
+}
+
+function drawPlayer() {
+    if (player.invincible > 0 && Math.sin(Date.now() / 80) > 0) return;
+
+    const sx = player.x * TILE - camera.x;
+    const sy = player.y * TILE - camera.y;
+    const flip = player.facing;
+
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.scale(flip, 1);
+
+    const bodyColor = '#4488ff';
+    const skinColor = '#ffcc99';
+
+    if (player.state === 'crouch') {
+        // Crouching
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-8, -20, 16, 12);
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-10, -8, 20, 10);
+    } else if (player.state === 'fight' && player.attacking) {
+        // Fighting
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-8, -40, 16, 14);
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-10, -26, 20, 18);
+        // Sword
+        ctx.fillStyle = '#cccccc';
+        ctx.fillRect(8, -35, 30, 3);
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(6, -37, 4, 7);
+    } else if (player.state === 'jump' || player.state === 'fall') {
+        // Jumping
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-8, -42, 16, 14);
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-10, -28, 20, 18);
+        // Legs apart
+        ctx.fillRect(-12, -10, 8, 12);
+        ctx.fillRect(4, -10, 8, 12);
+    } else if (player.state === 'run') {
+        // Running - animate legs
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-8, -42, 16, 14);
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-10, -28, 20, 18);
+        const legFrame = player.frame % 4;
+        ctx.fillRect(-10 + legFrame * 2, -10, 8, 12);
+        ctx.fillRect(2 - legFrame * 2, -10, 8, 12);
+    } else if (player.state === 'die') {
+        // Dying
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-12, -12, 16, 10);
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-14, -2, 24, 8);
+    } else {
+        // Idle
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-8, -42, 16, 14);
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-10, -28, 20, 18);
+        ctx.fillRect(-10, -10, 8, 12);
+        ctx.fillRect(2, -10, 8, 12);
+        // Sword on back if has one
+        if (hasSword) {
+            ctx.fillStyle = '#cccccc';
+            ctx.fillRect(-14, -38, 3, 22);
+        }
+    }
+
+    ctx.restore();
+}
+
+function drawGuard(g) {
+    if (g.dead) {
+        // Dead guard
+        const sx = g.x * TILE - camera.x;
+        const sy = g.y * TILE - camera.y;
+        ctx.fillStyle = '#882222';
+        ctx.fillRect(sx - 15, sy - 6, 30, 8);
+        return;
+    }
+
+    const sx = g.x * TILE - camera.x;
+    const sy = g.y * TILE - camera.y;
+
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.scale(g.facing, 1);
+
+    // Turban
+    ctx.fillStyle = '#ff6633';
+    ctx.fillRect(-8, -44, 16, 8);
+    // Head
+    ctx.fillStyle = '#dd9966';
+    ctx.fillRect(-7, -36, 14, 10);
+    // Body
+    ctx.fillStyle = '#882222';
+    ctx.fillRect(-10, -26, 20, 18);
+    // Legs
+    ctx.fillStyle = '#662222';
+    ctx.fillRect(-10, -10, 8, 12);
+    ctx.fillRect(2, -10, 8, 12);
+    // Sword
+    if (g.attacking) {
+        ctx.fillStyle = '#cccccc';
+        ctx.fillRect(8, -35, 25, 3);
+    } else {
+        ctx.fillStyle = '#cccccc';
+        ctx.fillRect(10, -30, 3, 18);
+    }
+
+    ctx.restore();
+}
+
+function drawParticles(dt) {
+    particles = particles.filter(p => {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+        if (p.life <= 0) return false;
+
+        const sx = p.x * TILE - camera.x;
+        const sy = p.y * TILE - camera.y;
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(sx - p.size / 2, sy - p.size / 2, p.size, p.size);
+        ctx.globalAlpha = 1;
+        return true;
+    });
+}
+
+// ===== GAME LOOP =====
+let lastTime = 0;
+
+function gameLoop(timestamp) {
+    if (!gameRunning) return;
+
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+
+    // Update timer
+    gameTime -= dt;
+    if (gameTime <= 0) {
+        gameOver('Время вышло!');
+        return;
+    }
+    const mins = Math.floor(gameTime / 60);
+    const secs = Math.floor(gameTime % 60);
+    document.getElementById('timer').textContent =
+        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+    // Update
+    updatePlayer(dt);
+    guards.forEach(g => updateGuard(g, dt));
+
+    // Draw
+    ctx.fillStyle = '#0a0a1a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw tiles
+    const lvl = levels[currentLevel];
+    for (let y = 0; y < lvl.height; y++) {
+        for (let x = 0; x < lvl.width; x++) {
+            if (lvl.tiles[y][x] !== 0) {
+                drawTile(x, y, lvl.tiles[y][x]);
+            }
+        }
+    }
+
+    // Draw guards
+    guards.forEach(drawGuard);
+
+    // Draw player
+    drawPlayer();
+
+    // Draw particles
+    drawParticles(dt);
+
+    // Level name
+    ctx.fillStyle = 'rgba(255,204,0,0.6)';
+    ctx.font = '18px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText(lvl.name, canvas.width / 2, 30);
+    ctx.textAlign = 'left';
+
+    // HP display
+    for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = i < player.hp ? '#ff3333' : '#333';
+        ctx.fillRect(10 + i * 25, 80, 20, 20);
+    }
+
+    animFrame++;
+    requestAnimationFrame(gameLoop);
+}
+
+// ===== GAME FLOW =====
+function gameOver(reason) {
+    gameRunning = false;
+    document.getElementById('gameOverScreen').style.display = 'block';
+    document.getElementById('deathReason').textContent = reason;
+}
+
+function winGame() {
+    gameRunning = false;
+    document.getElementById('winScreen').style.display = 'block';
+    const mins = Math.floor(gameTime / 60);
+    const secs = Math.floor(gameTime % 60);
+    document.getElementById('winTime').textContent = `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+function restartGame() {
+    document.getElementById('gameOverScreen').style.display = 'none';
+    document.getElementById('winScreen').style.display = 'none';
+    gameTime = 3600;
+    lives = 3;
+    hasSword = false;
+    document.getElementById('sword').textContent = 'нет';
+    document.getElementById('lives').textContent = lives;
+    loadLevel(0);
+    gameRunning = true;
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+}
+
+// ===== INPUT =====
+document.addEventListener('keydown', (e) => {
+    keys[e.key] = true;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+        e.preventDefault();
+    }
+});
+
+document.addEventListener('keyup', (e) => {
+    keys[e.key] = false;
+});
+
+// ===== START =====
+document.getElementById('startBtn').addEventListener('click', () => {
+    document.getElementById('startScreen').style.display = 'none';
+    loadLevel(0);
+    gameRunning = true;
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+});
+</script>
+</body>
+</html>

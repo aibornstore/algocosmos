@@ -8,214 +8,359 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
         #gameCanvas { display: block; }
-        #lobby { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; z-index: 10; }
-        #lobby h1 { font-size: 48px; color: #00ff88; text-shadow: 0 0 20px #00ff88; margin-bottom: 20px; }
-        #lobby input { padding: 10px 20px; font-size: 16px; border: 2px solid #00ff88; background: #1a2a1a; color: white; border-radius: 5px; margin: 10px; }
-        #lobby button { padding: 15px 40px; font-size: 18px; background: linear-gradient(135deg, #00ff88, #00cc66); border: none; border-radius: 10px; color: #0a0a1a; cursor: pointer; margin: 10px; font-weight: bold; }
-        #ui { position: absolute; top: 20px; left: 20px; color: #00ff88; font-size: 18px; text-shadow: 0 0 10px #00ff88; }
-        #leaderboard { position: absolute; top: 20px; right: 20px; color: #888; font-size: 14px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
-        #leaderboard h3 { color: #00ff88; margin-bottom: 5px; }
-        #brand { position: absolute; bottom: 20px; right: 20px; color: #8844ff; font-size: 14px; opacity: 0.7; }
-        #status { position: absolute; top: 60px; width: 100%; text-align: center; color: #888; font-size: 14px; }
+        #lobby { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; z-index: 10; background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; border: 2px solid #00ff88; min-width: 350px; }
+        #lobby h1 { font-size: 42px; color: #00ff88; text-shadow: 0 0 20px #00ff88; margin-bottom: 5px; }
+        #lobby h2 { font-size: 16px; color: #00cc66; margin-bottom: 15px; }
+        #lobby p { color: #888; margin-bottom: 8px; font-size: 13px; }
+        #lobby input { padding: 8px 16px; font-size: 14px; border: 2px solid #00ff88; background: #1a2a1a; color: white; border-radius: 5px; margin: 4px; width: 200px; }
+        #lobby button { padding: 10px 24px; font-size: 15px; background: linear-gradient(135deg, #00ff88, #00cc66); border: none; border-radius: 8px; color: #0a0a1a; cursor: pointer; margin: 6px; font-weight: bold; }
+        #lobby button:hover { transform: scale(1.05); }
+        .separator { color: #555; margin: 12px 0; font-size: 12px; }
     </style>
 </head>
 <body>
     <div id="lobby">
-        <h1>ALGOKOSMOS</h1>
-        <p style="color:#888;margin-bottom:20px;">Snake Arena — кто выживет?</p>
-        <input type="text" id="roomCode" placeholder="Код комнаты">
-        <br>
+        <h1>SNAKE ARENA</h1>
+        <h2>ALGOKOSMOS</h2>
+        <p>Змейка на арене с ботами или игроками</p>
+
+        <button onclick="startSingle()" style="width:220px;">ОДИН ИГРОК</button><br>
+
+        <div class="separator">─── мультиплеер ───</div>
+
+        <input type="text" id="roomCode" placeholder="Код комнаты"><br>
         <button onclick="createRoom()">Создать комнату</button>
         <button onclick="joinRoom()">Войти</button>
     </div>
-    <div id="ui">
-        <div>Длина: <span id="length">3</span></div>
-        <div>Убийства: <span id="kills">0</span></div>
-    </div>
-    <div id="leaderboard"><h3>Рейтинг</h3><div id="leaderboardList"></div></div>
-    <div id="status"></div>
-    <div id="brand">ALGOKOSMOS.COM</div>
     <canvas id="gameCanvas"></canvas>
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const GRID = 20;
-        let gameRunning = false, ws = null, myId = null, roomCode = '';
-        let mySnake = [], direction = 'right', nextDirection = 'right';
-        let foods = [], enemies = {};
-        let myKills = 0;
 
-        const COLORS = ['#00ff88','#ff0066','#00ccff','#ffcc00','#aa00ff','#ff6600'];
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const GRID = 20;
+const COLORS = ['#00ff88','#ff0066','#00ccff','#ffcc00','#aa00ff','#ff6600','#8844ff','#ffffff'];
 
-        function resize() { canvas.width = Math.floor(window.innerWidth / GRID) * GRID; canvas.height = Math.floor(window.innerHeight / GRID) * GRID; }
+let running = false, mode = 'menu';
+let ws = null, myId = null, roomCode = '';
+let mySnake = [], foods = [], bots = [], enemies = {};
+let direction = 'right', nextDir = 'right', kills = 0;
 
-        function initSnake() {
-            const x = Math.floor(Math.random() * (canvas.width / GRID - 10)) + 5;
-            const y = Math.floor(Math.random() * (canvas.height / GRID - 10)) + 5;
-            mySnake = [{ x, y }, { x: x - 1, y }, { x: x - 2, y }];
-        }
+function resize() {
+    canvas.width = Math.floor(window.innerWidth / GRID) * GRID;
+    canvas.height = Math.floor(window.innerHeight / GRID) * GRID;
+}
+window.addEventListener('resize', resize); resize();
 
-        function draw() {
-            ctx.fillStyle = '#0a0a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            // Grid
-            ctx.strokeStyle = '#1a1a2a';
-            for (let x = 0; x < canvas.width; x += GRID) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
-            for (let y = 0; y < canvas.height; y += GRID) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
-            // Food
-            foods.forEach(f => {
-                ctx.fillStyle = '#ff0055'; ctx.shadowColor = '#ff0055'; ctx.shadowBlur = 10;
-                ctx.beginPath(); ctx.arc(f.x * GRID + GRID / 2, f.y * GRID + GRID / 2, GRID / 2 - 2, 0, Math.PI * 2); ctx.fill();
-                ctx.shadowBlur = 0;
-            });
-            // My snake
-            ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 10;
-            mySnake.forEach((s, i) => {
-                ctx.fillStyle = i === 0 ? '#00ff88' : '#00cc66';
-                ctx.fillRect(s.x * GRID, s.y * GRID, GRID - 2, GRID - 2);
-            });
-            ctx.shadowBlur = 0;
-            // Enemy snakes
-            Object.values(enemies).forEach(e => {
-                if (!e.snake || e.snake.length === 0) return;
-                const color = COLORS[e.colorIdx % COLORS.length];
-                ctx.shadowColor = color; ctx.shadowBlur = 8;
-                e.snake.forEach((s, i) => {
-                    ctx.fillStyle = i === 0 ? color : shadeColor(color, -30);
-                    ctx.fillRect(s.x * GRID, s.y * GRID, GRID - 2, GRID - 2);
-                });
-                ctx.shadowBlur = 0;
-                // Name
-                if (e.snake.length > 0) {
-                    ctx.fillStyle = '#fff'; ctx.font = '10px Arial';
-                    ctx.fillText(e.name || 'Enemy', e.snake[0].x * GRID, e.snake[0].y * GRID - 5);
-                }
-            });
-        }
+function initSnake() {
+    const x = Math.floor(Math.random() * (canvas.width / GRID - 10)) + 5;
+    const y = Math.floor(Math.random() * (canvas.height / GRID - 10)) + 5;
+    mySnake = [{x, y}, {x:x-1, y}, {x:x-2, y}];
+}
 
-        function shadeColor(color, percent) {
-            const num = parseInt(color.replace('#', ''), 16);
-            const amt = Math.round(2.55 * percent);
-            const R = Math.max(0, Math.min(255, (num >> 16) + amt));
-            const G = Math.max(0, Math.min(255, (num >> 8 & 0x00FF) + amt));
-            const B = Math.max(0, Math.min(255, (num & 0x0000FF) + amt));
-            return `rgb(${R},${G},${B})`;
-        }
+function spawnFood(count = 25) {
+    for (let i = 0; i < count; i++)
+        foods.push({ x: Math.floor(Math.random() * (canvas.width / GRID)), y: Math.floor(Math.random() * (canvas.height / GRID)) });
+}
 
-        function update() {
-            direction = nextDirection;
-            const head = { ...mySnake[0] };
-            switch(direction) {
-                case 'up': head.y--; break;
-                case 'down': head.y++; break;
-                case 'left': head.x--; break;
-                case 'right': head.x++; break;
+// ===== BOT AI =====
+function initBots(count = 5) {
+    bots = [];
+    for (let i = 0; i < count; i++) {
+        const x = Math.floor(Math.random() * (canvas.width / GRID - 10)) + 5;
+        const y = Math.floor(Math.random() * (canvas.height / GRID - 10)) + 5;
+        bots.push({
+            snake: [{x,y},{x:x-1,y},{x:x-2,y}],
+            dir: ['up','down','left','right'][Math.floor(Math.random()*4)],
+            color: COLORS[(i+1) % COLORS.length],
+            name: ['Alpha','Beta','Gamma','Delta','Epsilon','Zeta','Eta','Theta'][i] || 'Bot',
+            kills: 0, alive: true, aiTimer: 0, speed: 100
+        });
+    }
+}
+
+function updateBot(bot, dt) {
+    if (!bot.alive) return;
+    bot.aiTimer -= dt;
+    if (bot.aiTimer <= 0) {
+        // Simple AI: try to go toward nearest food, avoid walls and self
+        const head = bot.snake[0];
+        let bestDir = bot.dir;
+        let bestDist = Infinity;
+
+        const tryDirs = ['up','down','left','right'].filter(d => {
+            const opp = {up:'down',down:'up',left:'right',right:'left'}[bot.dir];
+            return d !== opp;
+        });
+
+        tryDirs.forEach(d => {
+            let nx = head.x, ny = head.y;
+            switch(d) {
+                case 'up': ny--; break; case 'down': ny++; break;
+                case 'left': nx--; break; case 'right': nx++; break;
             }
             // Wrap
-            if (head.x < 0) head.x = Math.floor(canvas.width / GRID) - 1;
-            if (head.x >= canvas.width / GRID) head.x = 0;
-            if (head.y < 0) head.y = Math.floor(canvas.height / GRID) - 1;
-            if (head.y >= canvas.height / GRID) head.y = 0;
-            // Self collision
-            if (mySnake.some(s => s.x === head.x && s.y === head.y)) { gameOver(); return; }
-            // Enemy collision
-            for (const [id, e] of Object.entries(enemies)) {
-                if (e.snake && e.snake.some(s => s.x === head.x && s.y === head.y)) { gameOver(); return; }
-            }
-            mySnake.unshift(head);
-            // Food
-            const foodIdx = foods.findIndex(f => f.x === head.x && f.y === head.y);
-            if (foodIdx >= 0) {
-                foods.splice(foodIdx, 1);
-                myKills++; // Actually score
-                document.getElementById('length').textContent = mySnake.length;
-                document.getElementById('kills').textContent = myKills;
-            } else {
-                mySnake.pop();
-            }
-            // Send state
-            send({ type: 'move', game: 'snake', room: roomCode, data: { snake: mySnake, kills: myKills } });
-        }
+            if (nx < 0) nx = canvas.width / GRID - 1;
+            if (nx >= canvas.width / GRID) nx = 0;
+            if (ny < 0) ny = canvas.height / GRID - 1;
+            if (ny >= canvas.height / GRID) ny = 0;
 
-        function gameOver() { gameRunning = false; alert('Игра окончена! Длина: ' + mySnake.length); initSnake(); document.getElementById('lobby').style.display = 'block'; }
+            // Check self collision
+            if (bot.snake.some(s => s.x === nx && s.y === ny)) return;
 
-        function gameLoop() { if (!gameRunning) return; draw(); update(); setTimeout(gameLoop, 100); }
+            // Distance to nearest food
+            let minDist = Infinity;
+            foods.forEach(f => {
+                const dd = Math.abs(f.x - nx) + Math.abs(f.y - ny);
+                if (dd < minDist) minDist = dd;
+            });
 
-        // WebSocket
-        function connect() {
-            ws = new WebSocket(`ws://${location.hostname}:3000`);
-            ws.onopen = () => console.log('Connected');
-            ws.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                switch(msg.type) {
-                    case 'joined':
-                        myId = msg.playerId;
-                        document.getElementById('status').textContent = `Комната: ${roomCode} | Игроки: ${msg.players.length}`;
-                        if (msg.players.length >= 2) startGame();
-                        break;
-                    case 'player_joined':
-                        document.getElementById('status').textContent = `Комната: ${roomCode} | Игроки: ${msg.playerCount}`;
-                        break;
-                    case 'move':
-                        if (msg.playerId !== myId) handleEnemyMove(msg.playerId, msg.data);
-                        break;
-                    case 'player_left':
-                        delete enemies[msg.playerId];
-                        break;
-                }
-            };
-        }
-
-        function handleEnemyMove(id, data) {
-            if (data.snake) {
-                enemies[id] = { snake: data.snake, kills: data.kills, name: 'Player', colorIdx: Object.keys(enemies).length };
-            }
-        }
-
-        function send(msg) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
-
-        function createRoom() {
-            roomCode = document.getElementById('roomCode').value || Math.random().toString(36).substr(2, 6);
-            connect(); setTimeout(() => send({ type: 'join', game: 'snake', room: roomCode }), 500);
-            document.getElementById('lobby').style.display = 'none';
-        }
-        function joinRoom() {
-            roomCode = document.getElementById('roomCode').value;
-            if (!roomCode) { alert('Введите код комнаты'); return; }
-            connect(); setTimeout(() => send({ type: 'join', game: 'snake', room: roomCode }), 500);
-            document.getElementById('lobby').style.display = 'none';
-        }
-
-        function startGame() {
-            initSnake();
-            // Generate food
-            foods = [];
-            for (let i = 0; i < 20; i++) {
-                foods.push({ x: Math.floor(Math.random() * (canvas.width / GRID)), y: Math.floor(Math.random() * (canvas.height / GRID)) });
-            }
-            gameRunning = true;
-            document.getElementById('status').textContent = 'Игра началась!';
-            gameLoop();
-        }
-
-        document.addEventListener('keydown', e => {
-            switch(e.key) {
-                case 'ArrowUp': case 'w': if (direction !== 'down') nextDirection = 'up'; break;
-                case 'ArrowDown': case 's': if (direction !== 'up') nextDirection = 'down'; break;
-                case 'ArrowLeft': case 'a': if (direction !== 'right') nextDirection = 'left'; break;
-                case 'ArrowRight': case 'd': if (direction !== 'left') nextDirection = 'right'; break;
+            if (minDist < bestDist) {
+                bestDist = minDist;
+                bestDir = d;
             }
         });
 
-        let touchStartX, touchStartY;
-        canvas.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; });
-        canvas.addEventListener('touchend', e => {
-            const dx = e.changedTouches[0].clientX - touchStartX;
-            const dy = e.changedTouches[0].clientY - touchStartY;
-            if (Math.abs(dx) > Math.abs(dy)) { if (dx > 0 && direction !== 'left') nextDirection = 'right'; else if (dx < 0 && direction !== 'right') nextDirection = 'left'; }
-            else { if (dy > 0 && direction !== 'up') nextDirection = 'down'; else if (dy < 0 && direction !== 'down') nextDirection = 'up'; }
-        });
+        bot.dir = bestDir;
+        bot.aiTimer = 0.1 + Math.random() * 0.1;
+    }
 
-        window.addEventListener('resize', resize); resize();
-    </script>
+    // Move
+    const head = {...bot.snake[0]};
+    switch(bot.dir) {
+        case 'up': head.y--; break; case 'down': head.y++; break;
+        case 'left': head.x--; break; case 'right': head.x++; break;
+    }
+
+    // Wrap
+    if (head.x < 0) head.x = canvas.width / GRID - 1;
+    if (head.x >= canvas.width / GRID) head.x = 0;
+    if (head.y < 0) head.y = canvas.height / GRID - 1;
+    if (head.y >= canvas.height / GRID) head.y = 0;
+
+    // Self collision
+    if (bot.snake.some(s => s.x === head.x && s.y === head.y)) {
+        bot.alive = false;
+        return;
+    }
+
+    // Other snake collision
+    if (mySnake.some(s => s.x === head.x && s.y === head.y)) {
+        bot.alive = false;
+        kills += 3;
+        return;
+    }
+    bots.forEach(ob => {
+        if (ob === bot || !ob.alive) return;
+        if (ob.snake.some(s => s.x === head.x && s.y === head.y)) bot.alive = false;
+    });
+
+    bot.snake.unshift(head);
+    const fi = foods.findIndex(f => f.x === head.x && f.y === head.y);
+    if (fi >= 0) {
+        foods.splice(fi, 1);
+        bot.kills++;
+    } else {
+        bot.snake.pop();
+    }
+}
+
+// ===== UPDATE =====
+function update(dt) {
+    // Player move
+    direction = nextDir;
+    const head = {...mySnake[0]};
+    switch(direction) {
+        case 'up': head.y--; break; case 'down': head.y++; break;
+        case 'left': head.x--; break; case 'right': head.x++; break;
+    }
+
+    // Wrap
+    const cols = canvas.width / GRID, rows = canvas.height / GRID;
+    if (head.x < 0) head.x = cols - 1;
+    if (head.x >= cols) head.x = 0;
+    if (head.y < 0) head.y = rows - 1;
+    if (head.y >= rows) head.y = 0;
+
+    // Self collision
+    if (mySnake.some(s => s.x === head.x && s.y === head.y)) { gameOver(); return; }
+
+    // Bot collision
+    for (const bot of bots) {
+        if (!bot.alive) continue;
+        if (bot.snake.some(s => s.x === head.x && s.y === head.y)) { gameOver(); return; }
+    }
+
+    mySnake.unshift(head);
+    const fi = foods.findIndex(f => f.x === head.x && f.y === head.y);
+    if (fi >= 0) { foods.splice(fi, 1); kills++; } else { mySnake.pop(); }
+
+    // Update bots
+    bots.forEach(b => updateBot(b, dt));
+
+    // Respawn dead bots
+    bots.forEach(b => {
+        if (!b.alive) {
+            const x = Math.floor(Math.random() * (cols - 10)) + 5;
+            const y = Math.floor(Math.random() * (rows - 10)) + 5;
+            b.snake = [{x,y},{x:x-1,y},{x:x-2,y}];
+            b.alive = true;
+            b.dir = ['up','down','left','right'][Math.floor(Math.random()*4)];
+        }
+    });
+
+    // Refill food
+    while (foods.length < 20) spawnFood(1);
+
+    // Send state (multiplayer)
+    if (mode === 'multi') send({ type: 'move', game: 'snake', room: roomCode, data: { snake: mySnake, kills } });
+}
+
+function draw() {
+    ctx.fillStyle = '#0a0a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Grid
+    ctx.strokeStyle = '#1a1a2a'; ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += GRID) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+    for (let y = 0; y < canvas.height; y += GRID) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+
+    // Food
+    foods.forEach(f => {
+        ctx.fillStyle = '#ff0055'; ctx.shadowColor = '#ff0055'; ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.arc(f.x * GRID + GRID/2, f.y * GRID + GRID/2, GRID/2 - 2, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+
+    // Bots
+    bots.forEach(bot => {
+        if (!bot.alive) return;
+        ctx.shadowColor = bot.color; ctx.shadowBlur = 8;
+        bot.snake.forEach((s, i) => {
+            ctx.fillStyle = i === 0 ? bot.color : shadeColor(bot.color, -30);
+            ctx.fillRect(s.x * GRID, s.y * GRID, GRID - 2, GRID - 2);
+        });
+        ctx.shadowBlur = 0;
+        // Name
+        if (bot.snake.length > 0) {
+            ctx.fillStyle = '#fff'; ctx.font = '10px Arial';
+            ctx.fillText(bot.name, bot.snake[0].x * GRID, bot.snake[0].y * GRID - 5);
+        }
+    });
+
+    // Player
+    ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 10;
+    mySnake.forEach((s, i) => {
+        ctx.fillStyle = i === 0 ? '#00ff88' : '#00cc66';
+        ctx.fillRect(s.x * GRID, s.y * GRID, GRID - 2, GRID - 2);
+    });
+    ctx.shadowBlur = 0;
+
+    // HUD
+    ctx.fillStyle = '#00ff88'; ctx.font = '14px Segoe UI'; ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 6;
+    ctx.fillText(`Длина: ${mySnake.length}  Убийства: ${kills}`, 15, 25);
+    ctx.shadowBlur = 0;
+}
+
+function shadeColor(color, percent) {
+    const num = parseInt(color.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = Math.max(0, Math.min(255, (num >> 16) + amt));
+    const G = Math.max(0, Math.min(255, (num >> 8 & 0xFF) + amt));
+    const B = Math.max(0, Math.min(255, (num & 0xFF) + amt));
+    return `rgb(${R},${G},${B})`;
+}
+
+function gameOver() {
+    running = false;
+    alert(`Игра окончена! Длина: ${mySnake.length}, Убийства: ${kills}`);
+    document.getElementById('lobby').style.display = 'block';
+}
+
+let lastT = 0;
+function loop(ts) {
+    if (!running) return;
+    const dt = Math.min((ts - lastT) / 1000, 0.05);
+    lastT = ts;
+    update(dt);
+    draw();
+    setTimeout(() => requestAnimationFrame(loop), 100);
+}
+
+// ===== INPUT =====
+document.addEventListener('keydown', e => {
+    switch(e.key) {
+        case 'ArrowUp': case 'w': if (direction !== 'down') nextDir = 'up'; break;
+        case 'ArrowDown': case 's': if (direction !== 'up') nextDir = 'down'; break;
+        case 'ArrowLeft': case 'a': if (direction !== 'right') nextDir = 'left'; break;
+        case 'ArrowRight': case 'd': if (direction !== 'left') nextDir = 'right'; break;
+    }
+});
+
+let touchStartX, touchStartY;
+canvas.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; });
+canvas.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 0 && direction !== 'left') nextDir = 'right';
+        else if (dx < 0 && direction !== 'right') nextDir = 'left';
+    } else {
+        if (dy > 0 && direction !== 'up') nextDir = 'down';
+        else if (dy < 0 && direction !== 'down') nextDir = 'up';
+    }
+});
+
+// ===== SINGLE PLAYER =====
+window.startSingle = function() {
+    document.getElementById('lobby').style.display = 'none';
+    mode = 'single';
+    mySnake = []; foods = []; bots = []; enemies = {}; kills = 0;
+    direction = 'right'; nextDir = 'right';
+    initSnake();
+    spawnFood(25);
+    initBots(5);
+    running = true;
+    lastT = performance.now();
+    requestAnimationFrame(loop);
+};
+
+// ===== MULTIPLAYER =====
+function connect() {
+    ws = new WebSocket(`ws://${location.hostname}:3000`);
+    ws.onopen = () => console.log('Connected');
+    ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        switch(msg.type) {
+            case 'joined': myId = msg.playerId; break;
+            case 'move': if (msg.playerId !== myId) { if (!enemies[msg.playerId]) enemies[msg.playerId] = { colorIdx: Object.keys(enemies).length }; enemies[msg.playerId].snake = msg.data.snake; enemies[msg.playerId].kills = msg.data.kills; } break;
+            case 'player_left': delete enemies[msg.playerId]; break;
+        }
+    };
+}
+function send(msg) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
+
+window.createRoom = function() {
+    roomCode = document.getElementById('roomCode').value || Math.random().toString(36).substr(2, 6);
+    mode = 'multi';
+    connect(); setTimeout(() => send({ type: 'join', game: 'snake', room: roomCode }), 500);
+    document.getElementById('lobby').style.display = 'none';
+    mySnake = []; foods = []; bots = []; enemies = {}; kills = 0;
+    direction = 'right'; nextDir = 'right';
+    initSnake(); spawnFood(25);
+    running = true; lastT = performance.now();
+    requestAnimationFrame(loop);
+};
+window.joinRoom = function() {
+    roomCode = document.getElementById('roomCode').value;
+    if (!roomCode) { alert('Введите код комнаты'); return; }
+    mode = 'multi';
+    connect(); setTimeout(() => send({ type: 'join', game: 'snake', room: roomCode }), 500);
+    document.getElementById('lobby').style.display = 'none';
+    mySnake = []; foods = []; bots = []; enemies = {}; kills = 0;
+    direction = 'right'; nextDir = 'right';
+    initSnake(); spawnFood(25);
+    running = true; lastT = performance.now();
+    requestAnimationFrame(loop);
+};
+</script>
 </body>
 </html>

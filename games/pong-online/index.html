@@ -8,162 +8,232 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
         #gameCanvas { display: block; }
-        #lobby { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; z-index: 10; }
-        #lobby h1 { font-size: 48px; color: #ffffff; text-shadow: 0 0 20px #ffffff; margin-bottom: 20px; }
-        #lobby input { padding: 10px 20px; font-size: 16px; border: 2px solid #fff; background: #1a1a2a; color: white; border-radius: 5px; margin: 10px; }
-        #lobby button { padding: 15px 40px; font-size: 18px; background: linear-gradient(135deg, #ffffff, #888888); border: none; border-radius: 10px; color: #0a0a1a; cursor: pointer; margin: 10px; font-weight: bold; }
-        #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: #fff; font-size: 28px; text-shadow: 0 0 10px #fff; }
-        #brand { position: absolute; bottom: 20px; right: 20px; color: #8844ff; font-size: 14px; opacity: 0.7; }
-        #status { position: absolute; top: 60px; width: 100%; text-align: center; color: #888; font-size: 14px; }
+        #lobby { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; z-index: 10; background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; border: 2px solid #fff; min-width: 350px; }
+        #lobby h1 { font-size: 42px; color: #fff; text-shadow: 0 0 20px #fff; margin-bottom: 5px; }
+        #lobby h2 { font-size: 16px; color: #888; margin-bottom: 15px; }
+        #lobby p { color: #666; margin-bottom: 8px; font-size: 13px; }
+        #lobby input { padding: 8px 16px; font-size: 14px; border: 2px solid #fff; background: #1a1a2a; color: white; border-radius: 5px; margin: 4px; width: 200px; }
+        #lobby button { padding: 10px 24px; font-size: 15px; background: linear-gradient(135deg, #fff, #888); border: none; border-radius: 8px; color: #0a0a1a; cursor: pointer; margin: 6px; font-weight: bold; }
+        #lobby button:hover { transform: scale(1.05); }
+        .separator { color: #555; margin: 12px 0; font-size: 12px; }
+        #status { position: absolute; top: 60px; width: 100%; text-align: center; color: #888; font-size: 14px; pointer-events: none; }
     </style>
 </head>
 <body>
     <div id="lobby">
-        <h1>ALGOKOSMOS</h1>
-        <p style="color:#888;margin-bottom:20px;">Pong Online — 1v1 дуэль!</p>
-        <input type="text" id="roomCode" placeholder="Код комнаты">
-        <br>
+        <h1>PONG</h1>
+        <h2>ALGOKOSMOS Online</h2>
+        <p>Классический Pong — играй с AI или другом</p>
+
+        <button onclick="startSingle()" style="width:220px;">VS КОМПЬЮТЕР</button><br>
+        <button onclick="startLocal()" style="width:220px;">НА ДВОИХ (локально)</button><br>
+
+        <div class="separator">─── онлайн ───</div>
+
+        <input type="text" id="roomCode" placeholder="Код комнаты"><br>
         <button onclick="createRoom()">Создать комнату</button>
         <button onclick="joinRoom()">Войти</button>
     </div>
-    <div id="ui"><span id="score">0 : 0</span></div>
     <div id="status"></div>
-    <div id="brand">ALGOKOSMOS.COM</div>
     <canvas id="gameCanvas"></canvas>
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        let gameRunning = false, ws = null, myId = null, mySide = null, roomCode = '';
 
-        const WIN_SCORE = 7;
-        const paddleW = 12, paddleH = 80;
-        const p1 = { y: 0, score: 0 };
-        const p2 = { y: 0, score: 0 };
-        const ball = { x: 0, y: 0, r: 8, dx: 5, dy: 3 };
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
 
-        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-        function resetBall() { ball.x = canvas.width / 2; ball.y = canvas.height / 2; ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1); ball.dy = 3 * (Math.random() > 0.5 ? 1 : -1); }
+let running = false, mode = 'menu'; // menu | single | local | online
+let ws = null, myId = null, roomCode = '', mySide = null;
 
-        function draw() {
-            ctx.fillStyle = '#0a0a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            // Center line
-            ctx.setLineDash([10, 10]); ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.moveTo(canvas.width / 2, 0); ctx.lineTo(canvas.width / 2, canvas.height); ctx.stroke();
-            ctx.setLineDash([]);
-            // Paddles
-            ctx.shadowBlur = 15;
-            ctx.fillStyle = '#00ffff'; ctx.shadowColor = '#00ffff';
-            ctx.fillRect(30, p1.y, paddleW, paddleH);
-            ctx.fillStyle = '#ff00ff'; ctx.shadowColor = '#ff00ff';
-            ctx.fillRect(canvas.width - 30 - paddleW, p2.y, paddleW, paddleH);
-            // Ball
-            ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 20;
-            ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
-            ctx.shadowBlur = 0;
-        }
+const WIN = 7, PW = 12, PH = 80;
+let p1 = { y: 0, score: 0, dy: 0 };
+let p2 = { y: 0, score: 0, dy: 0 };
+let ball = { x: 0, y: 0, r: 8, dx: 5, dy: 3 };
+let myDy = 0;
 
-        function update() {
-            if (mySide === 'left') {
-                p1.y += myDy;
-                p1.y = Math.max(0, Math.min(canvas.height - paddleH, p1.y));
-                send({ type: 'move', game: 'pong', room: roomCode, data: { action: 'paddle', y: p1.y } });
-            } else {
-                p2.y += myDy;
-                p2.y = Math.max(0, Math.min(canvas.height - paddleH, p2.y));
-                send({ type: 'move', game: 'pong', room: roomCode, data: { action: 'paddle', y: p2.y } });
-            }
-            // Ball movement (host only)
-            if (mySide === 'left') {
-                ball.x += ball.dx; ball.y += ball.dy;
-                if (ball.y - ball.r < 0 || ball.y + ball.r > canvas.height) ball.dy *= -1;
-                // Paddle collision
-                if (ball.x - ball.r < 42 && ball.y > p1.y && ball.y < p1.y + paddleH) {
-                    ball.dx = Math.abs(ball.dx) * 1.05;
-                    ball.x = 42 + ball.r;
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; p1.y = canvas.height/2 - PH/2; p2.y = canvas.height/2 - PH/2; p2.x = canvas.width - 30 - PW; }
+window.addEventListener('resize', resize); resize();
+
+function resetBall() { ball.x = canvas.width/2; ball.y = canvas.height/2; ball.dx = 5 * (Math.random()>0.5?1:-1); ball.dy = 3 * (Math.random()>0.5?1:-1); }
+
+function update() {
+    // Player 1
+    p1.y += p1.dy; p1.y = Math.max(0, Math.min(canvas.height - PH, p1.y));
+
+    // Player 2 (AI or local or online)
+    if (mode === 'single') {
+        const target = ball.y - PH/2;
+        p2.dy = (target - p2.y) * 0.06;
+        p2.y += p2.dy;
+    } else if (mode === 'local') {
+        p2.y += p2.dy;
+    }
+    p2.y = Math.max(0, Math.min(canvas.height - PH, p2.y));
+
+    // Ball
+    ball.x += ball.dx; ball.y += ball.dy;
+    if (ball.y - ball.r < 0 || ball.y + ball.r > canvas.height) ball.dy *= -1;
+
+    // Paddle collision
+    if (ball.x - ball.r < 30 + PW && ball.y > p1.y && ball.y < p1.y + PH) {
+        ball.dx = Math.abs(ball.dx) * 1.05; ball.x = 30 + PW + ball.r;
+    }
+    if (ball.x + ball.r > canvas.width - 30 - PW && ball.y > p2.y && ball.y < p2.y + PH) {
+        ball.dx = -Math.abs(ball.dx) * 1.05; ball.x = canvas.width - 30 - PW - ball.r;
+    }
+
+    // Score
+    if (ball.x < 0) { p2.score++; resetBall(); }
+    if (ball.x > canvas.width) { p1.score++; resetBall(); }
+
+    // Win check
+    if (p1.score >= WIN || p2.score >= WIN) {
+        running = false;
+        const winner = p1.score >= WIN ? (mode === 'single' ? 'Ты' : 'Игрок 1') : (mode === 'single' ? 'Компьютер' : 'Игрок 2');
+        alert(`Победитель: ${winner}! ${p1.score}:${p2.score}`);
+        document.getElementById('lobby').style.display = 'block';
+    }
+
+    // Send state (online)
+    if (mode === 'online' && mySide === 'left') {
+        send({ type: 'move', game: 'pong', room: roomCode, data: { action: 'ball', x: ball.x, y: ball.y, dx: ball.dx, dy: ball.dy, s1: p1.score, s2: p2.score } });
+    }
+}
+
+function draw() {
+    ctx.fillStyle = '#0a0a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Center line
+    ctx.setLineDash([10, 10]); ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(canvas.width/2, 0); ctx.lineTo(canvas.width/2, canvas.height); ctx.stroke();
+    ctx.setLineDash([]);
+    // Paddles
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = '#00ffff'; ctx.shadowColor = '#00ffff'; ctx.fillRect(30, p1.y, PW, PH);
+    ctx.fillStyle = '#ff00ff'; ctx.shadowColor = '#ff00ff'; ctx.fillRect(canvas.width - 30 - PW, p2.y, PW, PH);
+    // Ball
+    ctx.fillStyle = '#fff'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 20;
+    ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    // Score
+    ctx.fillStyle = '#fff'; ctx.font = '24px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText(`${p1.score} : ${p2.score}`, canvas.width/2, 35);
+    ctx.textAlign = 'left';
+    // Labels
+    ctx.font = '12px Courier New'; ctx.fillStyle = '#00ffff';
+    ctx.fillText(mode === 'single' ? 'Ты' : 'P1', 30, canvas.height - 10);
+    ctx.fillStyle = '#ff00ff'; ctx.textAlign = 'right';
+    ctx.fillText(mode === 'single' ? 'AI' : 'P2', canvas.width - 30, canvas.height - 10);
+    ctx.textAlign = 'left';
+}
+
+let lastT = 0;
+function loop(ts) {
+    if (!running) return;
+    const dt = Math.min((ts - lastT) / 1000, 0.05);
+    lastT = ts;
+
+    // Apply local player movement
+    if (mode === 'local') {
+        // p1 controlled by W/S, p2 by arrows
+    } else if (mode === 'online') {
+        if (mySide === 'left') p1.y += myDy;
+        else p2.y += myDy;
+    } else {
+        p1.dy = myDy;
+    }
+
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// ===== INPUT =====
+document.addEventListener('keydown', e => {
+    if (mode === 'local') {
+        if (e.key === 'w' || e.key === 'W') p1.dy = -6;
+        if (e.key === 's' || e.key === 'S') p1.dy = 6;
+        if (e.key === 'ArrowUp') p2.dy = -6;
+        if (e.key === 'ArrowDown') p2.dy = 6;
+    } else {
+        if (e.key === 'ArrowUp' || e.key === 'w') myDy = -6;
+        if (e.key === 'ArrowDown' || e.key === 's') myDy = 6;
+    }
+});
+document.addEventListener('keyup', e => {
+    if (mode === 'local') {
+        if (['w','s','W','S'].includes(e.key)) p1.dy = 0;
+        if (['ArrowUp','ArrowDown'].includes(e.key)) p2.dy = 0;
+    } else {
+        if (['ArrowUp','ArrowDown','w','s'].includes(e.key)) myDy = 0;
+    }
+});
+
+canvas.addEventListener('touchmove', e => { e.preventDefault(); myDy = (e.touches[0].clientY < canvas.height/2) ? -6 : 6; });
+canvas.addEventListener('touchend', () => myDy = 0);
+
+// ===== MODES =====
+window.startSingle = function() {
+    document.getElementById('lobby').style.display = 'none';
+    mode = 'single'; p1.score = 0; p2.score = 0; myDy = 0; p1.dy = 0;
+    resetBall(); resize(); running = true; lastT = performance.now();
+    requestAnimationFrame(loop);
+};
+
+window.startLocal = function() {
+    document.getElementById('lobby').style.display = 'none';
+    mode = 'local'; p1.score = 0; p2.score = 0; p1.dy = 0; p2.dy = 0;
+    resetBall(); resize(); running = true; lastT = performance.now();
+    requestAnimationFrame(loop);
+};
+
+// ===== MULTIPLAYER =====
+function connect() {
+    ws = new WebSocket(`ws://${location.hostname}:3000`);
+    ws.onopen = () => console.log('Connected');
+    ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        switch(msg.type) {
+            case 'joined':
+                myId = msg.playerId;
+                mySide = msg.players.length === 1 ? 'left' : 'right';
+                document.getElementById('status').textContent = `Комната: ${roomCode} | Ты: ${mySide === 'left' ? 'Левый' : 'Правый'}`;
+                if (msg.players.length === 2) startOnline();
+                break;
+            case 'player_joined':
+                if (msg.playerCount === 2) startOnline();
+                break;
+            case 'move':
+                if (msg.playerId !== myId) {
+                    if (msg.data.action === 'paddle') {
+                        if (mySide === 'left') p2.y = msg.data.y; else p1.y = msg.data.y;
+                    } else if (msg.data.action === 'ball') {
+                        ball.x = msg.data.x; ball.y = msg.data.y;
+                        ball.dx = msg.data.dx; ball.dy = msg.data.dy;
+                        p1.score = msg.data.s1; p2.score = msg.data.s2;
+                    }
                 }
-                if (ball.x + ball.r > canvas.width - 42 && ball.y > p2.y && ball.y < p2.y + paddleH) {
-                    ball.dx = -Math.abs(ball.dx) * 1.05;
-                    ball.x = canvas.width - 42 - ball.r;
-                }
-                // Score
-                if (ball.x < 0) { p2.score++; resetBall(); }
-                if (ball.x > canvas.width) { p1.score++; resetBall(); }
-                document.getElementById('score').textContent = p1.score + ' : ' + p2.score;
-                send({ type: 'move', game: 'pong', room: roomCode, data: { action: 'ball', x: ball.x, y: ball.y, dx: ball.dx, dy: ball.dy, s1: p1.score, s2: p2.score } });
-                if (p1.score >= WIN_SCORE || p2.score >= WIN_SCORE) {
-                    alert('Победитель: ' + (p1.score >= WIN_SCORE ? 'Ты' : 'Противник'));
-                    p1.score = 0; p2.score = 0; resetBall();
-                }
-            }
+                break;
         }
+    };
+}
+function send(msg) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
 
-        let myDy = 0;
-        function gameLoop() { if (!gameRunning) return; draw(); update(); requestAnimationFrame(gameLoop); }
+function startOnline() {
+    document.getElementById('lobby').style.display = 'none';
+    mode = 'online'; p1.score = 0; p2.score = 0;
+    resetBall(); resize(); running = true; lastT = performance.now();
+    document.getElementById('status').textContent = 'Игра началась!';
+    requestAnimationFrame(loop);
+}
 
-        // WebSocket
-        function connect() {
-            ws = new WebSocket(`ws://${location.hostname}:3000`);
-            ws.onopen = () => console.log('Connected');
-            ws.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                switch(msg.type) {
-                    case 'joined':
-                        myId = msg.playerId;
-                        mySide = msg.players.length === 1 ? 'left' : 'right';
-                        document.getElementById('status').textContent = `Комната: ${roomCode} | Ты: ${mySide === 'left' ? 'Левый' : 'Правый'} | Ожидание...`;
-                        if (msg.players.length === 2) startGame();
-                        break;
-                    case 'player_joined':
-                        if (msg.playerCount === 2) startGame();
-                        break;
-                    case 'move':
-                        if (msg.playerId !== myId) handleEnemyMove(msg.data);
-                        break;
-                }
-            };
-        }
-
-        function handleEnemyMove(data) {
-            if (data.action === 'paddle') {
-                if (mySide === 'left') p2.y = data.y; else p1.y = data.y;
-            } else if (data.action === 'ball') {
-                ball.x = data.x; ball.y = data.y; ball.dx = data.dx; ball.dy = data.dy;
-                p1.score = data.s1; p2.score = data.s2;
-                document.getElementById('score').textContent = p1.score + ' : ' + p2.score;
-            }
-        }
-
-        function send(msg) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
-
-        function createRoom() {
-            roomCode = document.getElementById('roomCode').value || Math.random().toString(36).substr(2, 6);
-            connect(); setTimeout(() => send({ type: 'join', game: 'pong', room: roomCode }), 500);
-            document.getElementById('lobby').style.display = 'none';
-        }
-        function joinRoom() {
-            roomCode = document.getElementById('roomCode').value;
-            if (!roomCode) { alert('Введите код комнаты'); return; }
-            connect(); setTimeout(() => send({ type: 'join', game: 'pong', room: roomCode }), 500);
-            document.getElementById('lobby').style.display = 'none';
-        }
-
-        function startGame() {
-            p1.y = canvas.height / 2 - paddleH / 2;
-            p2.y = canvas.height / 2 - paddleH / 2;
-            resetBall(); gameRunning = true;
-            document.getElementById('status').textContent = 'Игра началась!';
-            gameLoop();
-        }
-
-        document.addEventListener('keydown', e => {
-            if (e.key === 'ArrowUp' || e.key === 'w') myDy = -6;
-            if (e.key === 'ArrowDown' || e.key === 's') myDy = 6;
-        });
-        document.addEventListener('keyup', e => { if (['ArrowUp','ArrowDown','w','s'].includes(e.key)) myDy = 0; });
-        canvas.addEventListener('touchmove', e => { e.preventDefault(); myDy = (e.touches[0].clientY < canvas.height / 2) ? -6 : 6; });
-        canvas.addEventListener('touchend', () => myDy = 0);
-
-        window.addEventListener('resize', resize); resize();
-    </script>
+window.createRoom = function() {
+    roomCode = document.getElementById('roomCode').value || Math.random().toString(36).substr(2, 6);
+    connect(); setTimeout(() => send({ type: 'join', game: 'pong', room: roomCode }), 500);
+};
+window.joinRoom = function() {
+    roomCode = document.getElementById('roomCode').value;
+    if (!roomCode) { alert('Введите код комнаты'); return; }
+    connect(); setTimeout(() => send({ type: 'join', game: 'pong', room: roomCode }), 500);
+};
+</script>
 </body>
 </html>

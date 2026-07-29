@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Mario Bros</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
+
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+    const audio = new Audio();
+
+    const TILE = 32;
+    const GRAVITY = 700;
+
+    let player = {}, enemies = [], coins = [], blocks = [], particles = [];
+    let camera = { x: 0 };
+    let score = 0, lives = 3, levelWidth = 0;
+    let levelMap = [];
+
+    // Level: 0=air, 1=ground, 2=platform, 3=brick, 4=?-block, 5=pipe, 6=coin
+    function generateLevel() {
+        const w = 250;
+        levelWidth = w * TILE;
+        const map = [];
+        for (let y = 0; y < 15; y++) {
+            map[y] = [];
+            for (let x = 0; x < w; x++) {
+                if (y >= 13) map[y][x] = 1; // ground
+                else if (y === 12 && (x < 5 || x > w - 5)) map[y][x] = 1;
+                else if (y === 9 && x > 15 && x < 22) map[y][x] = 2; // platform
+                else if (y === 10 && x === 18) map[y][x] = 4; // ?-block
+                else if (y === 10 && x === 20) map[y][x] = 3; // brick
+                else if (y === 10 && x === 22) map[y][x] = 4; // ?-block
+                else if (y === 7 && x > 35 && x < 42) map[y][x] = 2;
+                else if (y === 8 && x === 38) map[y][x] = 4;
+                else if (y >= 11 && x > 50 && x < 53) map[y][x] = 5; // pipe
+                else if (y >= 10 && x > 50 && x < 53) map[y][x] = 5;
+                else if (y === 9 && x > 65 && x < 72) map[y][x] = 2;
+                else if (y === 10 && x === 68) map[y][x] = 4;
+                else if (y === 10 && x === 70) map[y][x] = 3;
+                else if (y === 8 && x > 85 && x < 92) map[y][x] = 2;
+                else if (y === 9 && x === 88) map[y][x] = 4;
+                else if (y >= 11 && x > 100 && x < 103) map[y][x] = 5; // pipe
+                else if (y >= 10 && x > 100 && x < 103) map[y][x] = 5;
+                else if (y === 10 && x > 115 && x < 122) map[y][x] = 2;
+                else if (y === 10 && x === 118) map[y][x] = 4;
+                else if (y === 7 && x > 130 && x < 137) map[y][x] = 2;
+                else if (y === 8 && x === 133) map[y][x] = 4;
+                else if (y === 8 && x === 135) map[y][x] = 3;
+                else if (y >= 11 && x > 145 && x < 148) map[y][x] = 5;
+                else if (y >= 10 && x > 145 && x < 148) map[y][x] = 5;
+                else if (y === 9 && x > 160 && x < 167) map[y][x] = 2;
+                else if (y === 10 && x === 163) map[y][x] = 4;
+                else if (y === 8 && x > 180 && x < 187) map[y][x] = 2;
+                else if (y === 9 && x === 183) map[y][x] = 4;
+                else if (y === 9 && x === 185) map[y][x] = 4;
+                else if (y >= 13 && x > 200 && x < 210) map[y][x] = 1; // gap
+                else if (y === 12 && x > 220 && x < 230) map[y][x] = 2;
+                else if (y === 10 && x > 220 && x < 230) map[y][x] = 2;
+                else map[y][x] = 0;
+            }
+        }
+        // Remove ground for gaps
+        for (let x = 80; x < 84; x++) map[13][x] = 0;
+        for (let x = 150; x < 154; x++) map[13][x] = 0;
+        return map;
+    }
+
+    function initPlayer() {
+        player = {
+            x: 3 * TILE, y: 11 * TILE,
+            vx: 0, vy: 0,
+            w: 20, h: 28,
+            dir: 1,
+            onGround: false,
+            frame: 0,
+            invincible: 2,
+            dead: false
+        };
+    }
+
+    function spawnEnemies() {
+        enemies = [];
+        for (let i = 0; i < 30; i++) {
+            const x = 20 * TILE + i * 200 + Math.random() * 100;
+            const type = Math.random() > 0.6 ? 1 : 0; // 0=goomba, 1=koopa
+            enemies.push({
+                x, y: 11 * TILE,
+                vx: (Math.random() > 0.5 ? 1 : -1) * (1 + Math.random() * 0.5),
+                vy: 0,
+                w: 24, h: type === 1 ? 30 : 24,
+                type, alive: true,
+                frame: 0, stomped: false, stompTimer: 0
+            });
+        }
+    }
+
+    function spawnCoins() {
+        coins = [];
+        // Place coins at various positions
+        const coinPositions = [
+            {x:10,y:10},{x:12,y:10},{x:14,y:10},
+            {x:30,y:7},{x:32,y:7},{x:34,y:7},
+            {x:60,y:8},{x:62,y:8},
+            {x:90,y:6},{x:92,y:6},{x:94,y:6},
+            {x:120,y:8},{x:122,y:8},
+            {x:155,y:7},{x:157,y:7},{x:159,y:7},
+            {x:190,y:6},{x:192,y:6},
+            {x:225,y:8},{x:227,y:8},{x:229,y:8},
+        ];
+        coinPositions.forEach(p => {
+            coins.push({ x: p.x * TILE, y: p.y * TILE, alive: true, frame: 0 });
+        });
+    }
+
+    function isSolid(x, y) {
+        const gx = Math.floor(x), gy = Math.floor(y);
+        if (gy >= 14) return true; // below map = death
+        if (gx < 0 || gx >= levelWidth / TILE || gy < 0 || gy >= 15) return false;
+        const t = levelMap[gy]?.[gx] ?? 0;
+        return t === 1 || t === 3 || t === 4 || t === 5;
+    }
+
+    function isPlatform(x, y) {
+        const gx = Math.floor(x), gy = Math.floor(y);
+        if (gx < 0 || gx >= levelWidth / TILE || gy < 0 || gy >= 15) return false;
+        return levelMap[gy]?.[gx] === 2;
+    }
+
+    function hitBlock(gx, gy) {
+        if (gy < 0 || gy >= 15 || gx < 0 || gx >= levelWidth / TILE) return;
+        const t = levelMap[gy][gx];
+        if (t === 4) { // ?-block
+            levelMap[gy][gx] = 3; // becomes brick
+            score += 100;
+            audio.eat();
+            particles.push({ x: gx * TILE + 8, y: gy * TILE - 10, vy: -100, life: 0.5, text: '100', color: '#ffcc00' });
+        } else if (t === 3) { // brick
+            levelMap[gy][gx] = 0;
+            score += 10;
+            audio.hit();
+            for (let i = 0; i < 4; i++) {
+                particles.push({ x: gx * TILE + Math.random() * TILE, y: gy * TILE + Math.random() * TILE, vx: (Math.random()-0.5)*100, vy: -100 - Math.random()*100, life: 0.5, color: '#885533' });
+            }
+        }
+    }
+
+    // ===== UPDATE =====
+    game.update = function(dt) {
+        if (player.dead) return;
+
+        player.invincible = Math.max(0, player.invincible - dt);
+        player.frame += dt * 8;
+
+        // Movement
+        const speed = 180;
+        player.vx = 0;
+        if (keys['ArrowLeft'] || keys['a']) { player.vx = -speed; player.dir = -1; }
+        if (keys['ArrowRight'] || keys['d']) { player.vx = speed; player.dir = 1; }
+
+        // Jump
+        if ((keys['ArrowUp'] || keys['w']) && player.onGround) {
+            player.vy = -380;
+            player.onGround = false;
+            audio.jump();
+        }
+
+        // Physics
+        player.vy += GRAVITY * dt;
+        player.x += player.vx * dt;
+        player.y += player.vy * dt;
+
+        // Ground collision
+        player.onGround = false;
+        if (player.vy >= 0) {
+            if (isSolid(player.x + 2, player.y + player.h + 1) || isSolid(player.x + player.w - 2, player.y + player.h + 1)) {
+                player.y = Math.floor((player.y + player.h) / TILE) * TILE - player.h;
+                player.vy = 0;
+                player.onGround = true;
+            }
+            if (isPlatform(player.x + 2, player.y + player.h) || isPlatform(player.x + player.w - 2, player.y + player.h)) {
+                const platY = Math.floor((player.y + player.h) / TILE) * TILE;
+                if (player.y + player.h - platY < 10) {
+                    player.y = platY - player.h;
+                    player.vy = 0;
+                    player.onGround = true;
+                }
+            }
+        }
+        // Wall collision
+        if (isSolid(player.x, player.y + 5) || isSolid(player.x, player.y + player.h - 5)) {
+            player.x = Math.ceil(player.x / TILE) * TILE;
+        }
+        if (isSolid(player.x + player.w, player.y + 5) || isSolid(player.x + player.w, player.y + player.h - 5)) {
+            player.x = Math.floor((player.x + player.w) / TILE) * TILE - player.w;
+        }
+        // Ceiling - hit block
+        if (player.vy < 0) {
+            if (isSolid(player.x + 2, player.y) || isSolid(player.x + player.w - 2, player.y)) {
+                const hitGy = Math.floor(player.y / TILE);
+                const hitGx = Math.floor((player.x + player.w/2) / TILE);
+                hitBlock(hitGx, hitGy);
+                player.y = Math.ceil(player.y / TILE) * TILE;
+                player.vy = 0;
+            }
+        }
+
+        // Fall death
+        if (player.y > 15 * TILE) {
+            die();
+        }
+
+        // Camera
+        camera.x = player.x - game.w / 2;
+        camera.x = Math.max(0, Math.min(levelWidth - game.w, camera.x));
+
+        // Enemies
+        enemies.forEach(e => {
+            if (!e.alive) return;
+            if (e.stomped) {
+                e.stompTimer -= dt;
+                if (e.stompTimer <= 0) e.alive = false;
+                return;
+            }
+            e.frame += dt * 6;
+            e.vy += GRAVITY * dt;
+            e.x += e.vx * dt * 60;
+            e.y += e.vy * dt;
+
+            // Ground
+            if (isSolid(e.x + 2, e.y + e.h + 1) || isSolid(e.x + e.w - 2, e.y + e.h + 1)) {
+                e.y = Math.floor((e.y + e.h) / TILE) * TILE - e.h;
+                e.vy = 0;
+            }
+            // Turn at edges or walls
+            if (!isSolid(e.x + (e.vx > 0 ? e.w + 2 : -2), e.y + e.h + 2) || isSolid(e.x + (e.vx > 0 ? e.w : -2), e.y + 5)) {
+                e.vx *= -1;
+            }
+
+            // Player collision
+            if (player.invincible <= 0 &&
+                player.x + player.w > e.x && player.x < e.x + e.w &&
+                player.y + player.h > e.y && player.y < e.y + e.h) {
+                // Check if stomping (player falling on top)
+                if (player.vy > 0 && player.y + player.h < e.y + e.h/2) {
+                    e.stomped = true;
+                    e.stompTimer = 0.5;
+                    player.vy = -200;
+                    score += 200;
+                    audio.hit();
+                    particles.push({ x: e.x, y: e.y - 10, vy: -80, life: 0.4, text: '200', color: '#ffcc00' });
+                } else {
+                    die();
+                }
+            }
+        });
+
+        // Coins
+        coins.forEach(c => {
+            if (!c.alive) return;
+            c.frame += dt * 8;
+            if (player.x + player.w > c.x && player.x < c.x + TILE &&
+                player.y + player.h > c.y && player.y < c.y + TILE) {
+                c.alive = false;
+                score += 50;
+                audio.eat();
+                particles.push({ x: c.x, y: c.y - 10, vy: -80, life: 0.4, text: '50', color: '#ffcc00' });
+            }
+        });
+
+        // Particles
+        particles.forEach(p => {
+            p.y += (p.vy || 0) * dt;
+            p.x += (p.vx || 0) * dt;
+            p.life -= dt;
+        });
+        particles = particles.filter(p => p.life > 0);
+    };
+
+    function die() {
+        if (player.invincible > 0) return;
+        player.dead = true;
+        lives--;
+        audio.die();
+        if (lives <= 0) {
+            game.stop();
+            ui.showGameOver(score, () => { score = 0; lives = 3; levelMap = generateLevel(); initPlayer(); spawnEnemies(); spawnCoins(); game.start(); });
+        } else {
+            setTimeout(() => {
+                player.dead = false;
+                player.x = Math.max(0, player.x - 150);
+                player.y = 11 * TILE;
+                player.vy = 0;
+                player.invincible = 2;
+            }, 1000);
+        }
+    }
+
+    // ===== DRAW =====
+    game.draw = function() {
+        const ctx = game.ctx;
+        // Sky gradient
+        const grad = ctx.createLinearGradient(0, 0, 0, game.h);
+        grad.addColorStop(0, '#5c94fc');
+        grad.addColorStop(1, '#88b4ff');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, game.w, game.h);
+
+        // Clouds (background)
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = 0.7;
+        for (let i = 0; i < 8; i++) {
+            const cx = (i * 350 + 100) - (camera.x * 0.2) % (350 * 8);
+            const cy = 50 + (i % 3) * 40;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+            ctx.arc(cx + 25, cy - 10, 25, 0, Math.PI * 2);
+            ctx.arc(cx + 50, cy, 20, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        ctx.save();
+        ctx.translate(-camera.x, 0);
+
+        // Level tiles
+        const startX = Math.floor(camera.x / TILE);
+        const endX = Math.ceil((camera.x + game.w) / TILE);
+        for (let y = 0; y < 15; y++) {
+            for (let x = startX; x < endX; x++) {
+                if (!levelMap[y]) continue;
+                const sx = x * TILE, sy = y * TILE;
+                switch(levelMap[y][x]) {
+                    case 1: // Ground
+                        ctx.fillStyle = '#c84c0c';
+                        ctx.fillRect(sx, sy, TILE, TILE);
+                        ctx.fillStyle = '#e09050';
+                        ctx.fillRect(sx, sy, TILE, 4);
+                        ctx.strokeStyle = '#a03800';
+                        ctx.strokeRect(sx, sy, TILE, TILE);
+                        break;
+                    case 2: // Platform
+                        ctx.fillStyle = '#00a800';
+                        ctx.fillRect(sx, sy, TILE, TILE);
+                        ctx.fillStyle = '#00c800';
+                        ctx.fillRect(sx, sy, TILE, 6);
+                        ctx.strokeStyle = '#008000';
+                        ctx.strokeRect(sx, sy, TILE, TILE);
+                        break;
+                    case 3: // Brick
+                        ctx.fillStyle = '#c84c0c';
+                        ctx.fillRect(sx, sy, TILE, TILE);
+                        ctx.strokeStyle = '#a03800';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(sx + 1, sy + 1, TILE/2 - 1, TILE/2 - 1);
+                        ctx.strokeRect(sx + TILE/2, sy + 1, TILE/2 - 1, TILE/2 - 1);
+                        ctx.strokeRect(sx + 1, sy + TILE/2, TILE/2 - 1, TILE/2 - 1);
+                        ctx.strokeRect(sx + TILE/2, sy + TILE/2, TILE/2 - 1, TILE/2 - 1);
+                        break;
+                    case 4: // ?-block
+                        const pulse = Math.sin(Date.now() / 200) * 0.2 + 0.8;
+                        ctx.fillStyle = `rgb(${Math.floor(255*pulse)}, ${Math.floor(200*pulse)}, 0)`;
+                        ctx.fillRect(sx, sy, TILE, TILE);
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '20px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('?', sx + TILE/2, sy + TILE/2 + 7);
+                        ctx.textAlign = 'left';
+                        ctx.strokeStyle = '#aa8800';
+                        ctx.strokeRect(sx, sy, TILE, TILE);
+                        break;
+                    case 5: // Pipe
+                        ctx.fillStyle = '#00a800';
+                        ctx.fillRect(sx, sy, TILE, TILE);
+                        ctx.fillStyle = '#00c800';
+                        ctx.fillRect(sx + 2, sy, 6, TILE);
+                        ctx.strokeStyle = '#008000';
+                        ctx.strokeRect(sx, sy, TILE, TILE);
+                        break;
+                }
+            }
+        }
+
+        // Coins
+        coins.forEach(c => {
+            if (!c.alive) return;
+            const bounce = Math.sin(c.frame) * 3;
+            ctx.fillStyle = '#ffcc00';
+            ctx.shadowColor = '#ffcc00';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(c.x + TILE/2, c.y + TILE/2 + bounce, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffaa00';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('$', c.x + TILE/2, c.y + TILE/2 + 4 + bounce);
+            ctx.textAlign = 'left';
+        });
+
+        // Enemies
+        enemies.forEach(e => {
+            if (!e.alive) return;
+            if (e.stomped) {
+                ctx.fillStyle = '#888';
+                ctx.fillRect(e.x, e.y + e.h - 8, e.w, 8);
+                return;
+            }
+            if (e.type === 0) { // Goomba
+                ctx.fillStyle = '#884400';
+                ctx.fillRect(e.x, e.y, e.w, e.h);
+                ctx.fillStyle = '#aa6622';
+                ctx.fillRect(e.x + 2, e.y + 2, e.w - 4, e.h/2);
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(e.x + 4, e.y + 6, 5, 5);
+                ctx.fillRect(e.x + e.w - 9, e.y + 6, 5, 5);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(e.x + 5, e.y + 7, 3, 3);
+                ctx.fillRect(e.x + e.w - 8, e.y + 7, 3, 3);
+            } else { // Koopa
+                ctx.fillStyle = '#00aa00';
+                ctx.fillRect(e.x, e.y, e.w, e.h);
+                ctx.fillStyle = '#00cc00';
+                ctx.fillRect(e.x + 2, e.y + 2, e.w - 4, e.h - 4);
+                ctx.fillStyle = '#ffff00';
+                ctx.fillRect(e.x + 4, e.y + 8, 6, 6);
+                ctx.fillRect(e.x + e.w - 10, e.y + 8, 6, 6);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(e.x + 5, e.y + 9, 3, 3);
+                ctx.fillRect(e.x + e.w - 9, e.y + 9, 3, 3);
+            }
+        });
+
+        // Player
+        if (!player.dead && (player.invincible <= 0 || Math.sin(Date.now() / 80) > 0)) {
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(player.x, player.y, player.w, player.h);
+            ctx.fillStyle = '#ffcc99';
+            ctx.fillRect(player.x + 2, player.y + 2, player.w - 4, 12);
+            // Hat
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(player.x - 2, player.y - 2, player.w + 4, 6);
+            // Eyes
+            ctx.fillStyle = '#000';
+            ctx.fillRect(player.x + (player.dir > 0 ? 12 : 4), player.y + 6, 3, 3);
+        }
+
+        // Particles
+        particles.forEach(p => {
+            ctx.globalAlpha = Math.max(0, p.life * 2);
+            if (p.text) {
+                ctx.fillStyle = p.color;
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(p.text, p.x, p.y);
+                ctx.textAlign = 'left';
+            } else {
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 6, 6);
+            }
+            ctx.globalAlpha = 1;
+        });
+
+        ctx.restore();
+
+        // HUD
+        ui.drawHUD(game.ctx, [
+            { label: 'MARIO', value: score, color: '#fff' },
+            { label: 'Жизни', value: lives, color: '#ff0000' },
+            { label: 'Мир', value: '1-1', color: '#fff' }
+        ]);
+        ui.drawBrand(game.ctx, game.w, game.h);
+    };
+
+    // ===== INPUT =====
+    const keys = {};
+    document.addEventListener('keydown', e => { keys[e.key] = true; });
+    document.addEventListener('keyup', e => { keys[e.key] = false; });
+    input.preventArrowScroll();
+    audio.init();
+
+    // Touch
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); keys['ArrowRight'] = true; });
+    canvas.addEventListener('touchend', e => { keys['ArrowRight'] = false; keys['ArrowLeft'] = false; keys['ArrowUp'] = false; });
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const x = e.touches[0].clientX;
+        keys['ArrowRight'] = x > game.w * 0.6;
+        keys['ArrowLeft'] = x < game.w * 0.3;
+    });
+    canvas.addEventListener('dblclick', () => { keys['ArrowUp'] = true; setTimeout(() => keys['ArrowUp'] = false, 100); });
+
+    // ===== START =====
+    ui.showStart({
+        title: 'MARIO BROS',
+        subtitle: 'ALGOKOSMOS Edition',
+        description: 'Классический платформер! Прыгай на врагов и собирай монеты!',
+        color: '#ff0000',
+        controls: '← → движение | ↑ прыжок | Прыжок на врага = победа',
+        onStart: () => {
+            levelMap = generateLevel();
+            initPlayer();
+            spawnEnemies();
+            spawnCoins();
+            score = 0;
+            lives = 3;
+            game.start();
+        }
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Bomberman</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; margin: 0 auto; }
+        #menu { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; z-index: 10; background: rgba(0,0,0,0.92); padding: 30px 40px; border-radius: 15px; border: 2px solid #ff6600; min-width: 380px; }
+        #menu h1 { font-size: 36px; color: #ff6600; text-shadow: 0 0 20px #ff6600; margin-bottom: 4px; }
+        #menu h2 { font-size: 16px; color: #ff4400; margin-bottom: 18px; }
+        #menu p { color: #888; margin-bottom: 8px; font-size: 13px; }
+        #menu input { padding: 8px 16px; font-size: 14px; border: 2px solid #ff6600; background: #1a1a2a; color: white; border-radius: 5px; margin: 4px; width: 200px; }
+        #menu select { padding: 8px; font-size: 13px; border: 2px solid #ff6600; background: #1a1a2a; color: white; border-radius: 5px; margin: 4px; }
+        #menu button { padding: 10px 24px; font-size: 15px; background: linear-gradient(135deg, #ff6600, #ff4400); border: none; border-radius: 8px; color: white; cursor: pointer; margin: 6px; font-weight: bold; }
+        #menu button:hover { transform: scale(1.05); }
+        .sep { color: #555; margin: 12px 0; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="menu">
+        <h1>BOMBERMAN</h1>
+        <h2>ALGOKOSMOS</h2>
+        <p>Классический Бомбермен — до 4 игроков</p>
+        <button onclick="startSingle()" style="width:220px;">ОДИН ИГРОК</button><br>
+        <div class="sep">─── мультиплеер ───</div>
+        <input type="text" id="roomCode" placeholder="Код комнаты"><br>
+        <select id="maxP"><option value="2">2 игрока</option><option value="4" selected>4 игрока</option></select><br>
+        <button onclick="createRoom()">Создать</button>
+        <button onclick="joinRoom()">Войти</button>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const TILE = 40;
+const COLS = 15, ROWS = 13;
+const COLORS = ['#ffcc00','#00ffff','#ff00ff','#00ff88'];
+const NAMES = ['Жёлтый','Голубой','Розовый','Зелёный'];
+
+// 0=empty, 1=indestructible, 2=destructible, 3=powerup
+let map = [];
+let running = false, mode = 'menu';
+let ws = null, myId = null, roomCode = '';
+let players = {}, bombs = [], explosions = [], powerups = [];
+let enemyBots = [];
+
+function resize() {
+    canvas.width = COLS * TILE;
+    canvas.height = ROWS * TILE;
+    canvas.style.marginTop = Math.max(0, (window.innerHeight - canvas.height) / 2) + 'px';
+}
+window.addEventListener('resize', resize); resize();
+
+// ===== MAP GENERATION =====
+function generateMap() {
+    map = [];
+    for (let y = 0; y < ROWS; y++) {
+        map[y] = [];
+        for (let x = 0; x < COLS; x++) {
+            if (x === 0 || x === COLS-1 || y === 0 || y === ROWS-1) {
+                map[y][x] = 1; // border wall
+            } else if (x % 2 === 0 && y % 2 === 0) {
+                map[y][x] = 1; // pillar
+            } else {
+                map[y][x] = 0; // empty
+            }
+        }
+    }
+    // Scatter destructible blocks
+    for (let y = 1; y < ROWS-1; y++) {
+        for (let x = 1; x < COLS-1; x++) {
+            if (map[y][x] === 0 && Math.random() < 0.6) {
+                // Don't block spawn corners
+                if ((x <= 2 && y <= 2) || (x >= COLS-3 && y <= 2) ||
+                    (x <= 2 && y >= ROWS-3) || (x >= COLS-3 && y >= ROWS-3)) continue;
+                map[y][x] = 2;
+            }
+        }
+    }
+}
+
+function spawnPos(idx) {
+    const positions = [
+        {x:1, y:1}, {x:COLS-2, y:1},
+        {x:1, y:ROWS-2}, {x:COLS-2, y:ROWS-2}
+    ];
+    return positions[idx % 4];
+}
+
+// ===== PLAYER =====
+function createPlayer(id, ci) {
+    const sp = spawnPos(ci);
+    return {
+        id, x: sp.x, y: sp.y, ci,
+        color: COLORS[ci], name: NAMES[ci],
+        bombs: 1, maxBombs: 1, range: 1, speed: 1,
+        alive: true, shield: 0, score: 0
+    };
+}
+
+// ===== BOMB =====
+function placeBomb(p) {
+    const count = bombs.filter(b => b.owner === p.id).length;
+    if (count >= p.maxBombs) return;
+    const bx = Math.floor(p.x), by = Math.floor(p.y);
+    if (bombs.some(b => b.x === bx && b.y === by)) return;
+    bombs.push({ x: bx, y: by, timer: 2.5, range: p.range, owner: p.id });
+}
+
+function explodeBomb(b) {
+    const dirs = [{dx:0,dy:0},{dx:0,dy:-1},{dx:0,dy:1},{dx:-1,dy:0},{dx:1,dy:0}];
+    for (const d of dirs) {
+        for (let i = 0; i <= b.range; i++) {
+            const ex = b.x + d.dx * i, ey = b.y + d.dy * i;
+            if (ex < 0 || ex >= COLS || ey < 0 || ey >= ROWS) break;
+            if (map[ey][ex] === 1) break; // indestructible
+            explosions.push({ x: ex, y: ey, timer: 0.5 });
+            if (map[ey][ex] === 2) {
+                map[ey][ex] = 0;
+                // Drop powerup?
+                if (Math.random() < 0.3) {
+                    const types = ['bombs','range','speed','shield'];
+                    powerups.push({ x: ex, y: ey, type: types[Math.floor(Math.random() * types.length)] });
+                }
+                break; // explosion stops at destructible
+            }
+            // Hit players
+            Object.values(players).forEach(p => {
+                if (!p.alive) return;
+                const px = Math.floor(p.x), py = Math.floor(p.y);
+                if (px === ex && py === ey) {
+                    if (p.shield > 0) { p.shield = 0; }
+                    else { p.alive = false; }
+                }
+            });
+            // Hit bots
+            enemyBots.forEach(bot => {
+                if (!bot.alive) return;
+                const bx = Math.floor(bot.x), by = Math.floor(bot.y);
+                if (bx === ex && by === ey) bot.alive = false;
+            });
+            // Chain bombs
+            bombs.forEach(ob => {
+                if (ob !== b && ob.x === ex && ob.y === ey) ob.timer = 0.05;
+            });
+        }
+    }
+}
+
+// ===== BOT AI =====
+function createBot(x, y) {
+    return { x, y, alive: true, dir: 'down', ai: 0, speed: 0.8, bombTimer: 0 };
+}
+
+function updateBot(bot, dt) {
+    if (!bot.alive) return;
+    bot.ai -= dt;
+    bot.bombTimer -= dt;
+
+    if (bot.ai <= 0) {
+        const dirs = ['up','down','left','right'];
+        bot.dir = dirs[Math.floor(Math.random() * 4)];
+        bot.ai = 0.5 + Math.random() * 1.5;
+    }
+
+    let dx = 0, dy = 0;
+    const spd = bot.speed * dt;
+    switch(bot.dir) {
+        case 'up': dy = -spd; break;
+        case 'down': dy = spd; break;
+        case 'left': dx = -spd; break;
+        case 'right': dx = spd; break;
+    }
+
+    const nx = bot.x + dx, ny = bot.y + dy;
+    const gx = Math.floor(nx), gy = Math.floor(ny);
+    if (gx >= 0 && gx < COLS && gy >= 0 && gy < ROWS && map[gy][gx] === 0) {
+        bot.x = nx; bot.y = ny;
+    } else {
+        bot.ai = 0; // change direction
+    }
+
+    // Place bomb near player
+    if (bot.bombTimer <= 0) {
+        const me = players[myId];
+        if (me && me.alive) {
+            const dist = Math.abs(Math.floor(bot.x) - Math.floor(me.x)) + Math.abs(Math.floor(bot.y) - Math.floor(me.y));
+            if (dist < 4) {
+                const bx = Math.floor(bot.x), by = Math.floor(bot.y);
+                if (!bombs.some(b => b.x === bx && b.y === by)) {
+                    bombs.push({ x: bx, y: by, timer: 2.5, range: 1, owner: 'bot' });
+                    bot.bombTimer = 3 + Math.random() * 2;
+                }
+            }
+        }
+    }
+}
+
+// ===== DRAWING =====
+function draw() {
+    ctx.fillStyle = '#112211';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Map
+    for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+            const sx = x * TILE, sy = y * TILE;
+            if (map[y][x] === 1) {
+                ctx.fillStyle = '#444466';
+                ctx.fillRect(sx, sy, TILE, TILE);
+                ctx.fillStyle = '#555577';
+                ctx.fillRect(sx+2, sy+2, TILE-4, TILE-4);
+            } else if (map[y][x] === 2) {
+                ctx.fillStyle = '#885533';
+                ctx.fillRect(sx, sy, TILE, TILE);
+                ctx.strokeStyle = '#664422';
+                ctx.strokeRect(sx+2, sy+2, TILE-4, TILE-4);
+                ctx.beginPath();
+                ctx.moveTo(sx, sy); ctx.lineTo(sx+TILE, sy+TILE);
+                ctx.moveTo(sx+TILE, sy); ctx.lineTo(sx, sy+TILE);
+                ctx.stroke();
+            }
+        }
+    }
+
+    // Powerups
+    powerups.forEach(p => {
+        const sx = p.x * TILE, sy = p.y * TILE;
+        const pulse = Math.sin(Date.now() / 200) * 0.3 + 0.7;
+        ctx.globalAlpha = pulse;
+        const icons = { bombs:'💣', range:'🔥', speed:'⚡', shield:'🛡' };
+        ctx.fillStyle = '#333';
+        ctx.fillRect(sx+4, sy+4, TILE-8, TILE-8);
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(icons[p.type] || '?', sx + TILE/2, sy + TILE/2 + 7);
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+    });
+
+    // Bombs
+    bombs.forEach(b => {
+        const sx = b.x * TILE, sy = b.y * TILE;
+        const pulse = Math.sin(Date.now() / 100) * 0.3 + 0.7;
+        ctx.fillStyle = `rgba(255, 0, 0, ${pulse})`;
+        ctx.beginPath();
+        ctx.arc(sx + TILE/2, sy + TILE/2, TILE/2 - 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.fillRect(sx + TILE/2 - 2, sy + 4, 4, 8);
+    });
+
+    // Explosions
+    explosions.forEach(e => {
+        const sx = e.x * TILE, sy = e.y * TILE;
+        const a = e.timer / 0.5;
+        ctx.fillStyle = `rgba(255, ${Math.floor(200 * a)}, 0, ${a})`;
+        ctx.fillRect(sx, sy, TILE, TILE);
+    });
+
+    // Players
+    Object.values(players).forEach(p => {
+        if (!p.alive) return;
+        const sx = p.x * TILE, sy = p.y * TILE;
+        ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(sx + 6, sy + 4, TILE - 12, TILE - 8);
+        // Head
+        ctx.beginPath();
+        ctx.arc(sx + TILE/2, sy + 12, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Shield
+        if (p.shield > 0) {
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(sx + TILE/2, sy + TILE/2, TILE/2, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    });
+
+    // Bots
+    enemyBots.forEach(bot => {
+        if (!bot.alive) return;
+        const sx = bot.x * TILE, sy = bot.y * TILE;
+        ctx.fillStyle = '#ff3333';
+        ctx.fillRect(sx + 6, sy + 4, TILE - 12, TILE - 8);
+        ctx.beginPath();
+        ctx.arc(sx + TILE/2, sy + 12, 8, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // HUD
+    ctx.fillStyle = '#ff6600';
+    ctx.font = '12px Courier New';
+    ctx.shadowColor = '#ff6600';
+    ctx.shadowBlur = 4;
+    ctx.fillText(`Бомбы: ${players[myId]?.maxBombs || 1}  Радиус: ${players[myId]?.range || 1}  Скорость: ${players[myId]?.speed || 1}`, 8, canvas.height - 8);
+    ctx.shadowBlur = 0;
+}
+
+// ===== UPDATE =====
+function update(dt) {
+    // Bombs
+    bombs.forEach(b => {
+        b.timer -= dt;
+        if (b.timer <= 0) {
+            explodeBomb(b);
+            b.dead = true;
+        }
+    });
+    bombs = bombs.filter(b => !b.dead);
+
+    // Explosions
+    explosions.forEach(e => e.timer -= dt);
+    explosions = explosions.filter(e => e.timer > 0);
+
+    // Bots
+    enemyBots.forEach(b => updateBot(b, dt));
+    // Respawn bots
+    enemyBots.forEach(b => {
+        if (!b.alive) {
+            b.alive = true;
+            b.x = Math.floor(COLS/2);
+            b.y = Math.floor(ROWS/2);
+        }
+    });
+
+    // Powerup pickup
+    const me = players[myId];
+    if (me && me.alive) {
+        const gx = Math.floor(me.x), gy = Math.floor(me.y);
+        powerups = powerups.filter(p => {
+            if (p.x === gx && p.y === gy) {
+                switch(p.type) {
+                    case 'bombs': me.maxBombs++; break;
+                    case 'range': me.range++; break;
+                    case 'speed': me.speed = Math.min(2, me.speed + 0.2); break;
+                    case 'shield': me.shield = 10; break;
+                }
+                return false;
+            }
+            return true;
+        });
+    }
+
+    // Shield timer
+    Object.values(players).forEach(p => {
+        if (p.shield > 0) p.shield -= dt;
+    });
+
+    // Check game over
+    if (me && !me.alive) {
+        running = false;
+        alert('Вы проиграли!');
+        document.getElementById('menu').style.display = 'block';
+    }
+    if (enemyBots.length > 0 && enemyBots.every(b => !b.alive)) {
+        // All bots dead = win
+    }
+}
+
+// ===== INPUT =====
+const keys = {};
+document.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+function handleInput(dt) {
+    const me = players[myId];
+    if (!me || !me.alive) return;
+
+    const spd = me.speed * dt * 60;
+    let dx = 0, dy = 0;
+
+    if (keys['ArrowUp'] || keys['w']) dy = -spd;
+    if (keys['ArrowDown'] || keys['s']) dy = spd;
+    if (keys['ArrowLeft'] || keys['a']) dx = -spd;
+    if (keys['ArrowRight'] || keys['d']) dx = spd;
+
+    const nx = me.x + dx, ny = me.y + dy;
+    const gx = Math.floor(nx), gy = Math.floor(ny);
+    if (gx >= 0 && gx < COLS && gy >= 0 && gy < ROWS && map[gy][gx] === 0) {
+        me.x = nx; me.y = ny;
+    }
+}
+
+// Bomb placement
+document.addEventListener('keydown', e => {
+    if (e.key === ' ' && running) {
+        const me = players[myId];
+        if (me && me.alive) placeBomb(me);
+    }
+});
+
+// ===== GAME LOOP =====
+let lastT = 0;
+function loop(ts) {
+    if (!running) return;
+    const dt = Math.min((ts - lastT) / 1000, 0.05);
+    lastT = ts;
+    handleInput(dt);
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// ===== SINGLE PLAYER =====
+window.startSingle = function() {
+    document.getElementById('menu').style.display = 'none';
+    mode = 'single';
+    generateMap();
+    players = {};
+    myId = 'local';
+    players['local'] = createPlayer('local', 0);
+    bombs = []; explosions = []; powerups = [];
+    // Create bots
+    enemyBots = [];
+    for (let i = 0; i < 3; i++) {
+        const x = Math.floor(Math.random() * (COLS - 4)) + 2;
+        const y = Math.floor(Math.random() * (ROWS - 4)) + 2;
+        if (map[y][x] === 0) enemyBots.push(createBot(x, y));
+    }
+    running = true;
+    lastT = performance.now();
+    requestAnimationFrame(loop);
+};
+
+// ===== MULTIPLAYER =====
+function connect() {
+    ws = new WebSocket(`ws://${location.hostname}:3000`);
+    ws.onopen = () => console.log('Connected');
+    ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        switch(msg.type) {
+            case 'joined': myId = msg.playerId; break;
+            case 'player_joined': break;
+            case 'player_left': delete players[msg.playerId]; break;
+            case 'move': if (msg.playerId !== myId && players[msg.playerId]) { players[msg.playerId].x = msg.data.x; players[msg.playerId].y = msg.data.y; } break;
+            case 'bomb': bombs.push(msg.data); break;
+            case 'start': startMulti(msg.players); break;
+        }
+    };
+}
+function send(msg) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
+
+function startMulti(plList) {
+    document.getElementById('menu').style.display = 'none';
+    mode = 'multi';
+    generateMap();
+    players = {};
+    plList.forEach((p, i) => {
+        players[p.id] = createPlayer(p.id, i);
+    });
+    bombs = []; explosions = []; powerups = []; enemyBots = [];
+    running = true;
+    lastT = performance.now();
+    requestAnimationFrame(loop);
+}
+
+window.createRoom = function() {
+    roomCode = document.getElementById('roomCode').value || Math.random().toString(36).substr(2, 6);
+    const maxP = parseInt(document.getElementById('maxP').value);
+    connect(); setTimeout(() => send({ type: 'join', game: 'bomberman', room: roomCode, maxPlayers: maxP }), 500);
+};
+window.joinRoom = function() {
+    roomCode = document.getElementById('roomCode').value;
+    if (!roomCode) { alert('Введите код комнаты'); return; }
+    connect(); setTimeout(() => send({ type: 'join', game: 'bomberman', room: roomCode }), 500);
+};
+
+// Touch
+let tsx, tsy;
+canvas.addEventListener('touchstart', e => { e.preventDefault(); tsx = e.touches[0].clientX; tsy = e.touches[0].clientY; });
+canvas.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - tsx;
+    const dy = e.changedTouches[0].clientY - tsy;
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+        // Tap = bomb
+        const me = players[myId];
+        if (me && me.alive) placeBomb(me);
+    } else {
+        const me = players[myId];
+        if (!me || !me.alive) return;
+        const spd = me.speed * 0.5;
+        if (Math.abs(dx) > Math.abs(dy)) {
+            me.x += dx > 0 ? spd : -spd;
+        } else {
+            me.y += dy > 0 ? spd : -spd;
+        }
+    }
+});
+</script>
+</body>
+</html>

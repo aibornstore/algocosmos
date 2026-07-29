@@ -8,80 +8,90 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
         #gameCanvas { display: block; }
-        #ui { position: absolute; top: 20px; left: 20px; color: #ffcc00; font-size: 18px; text-shadow: 0 0 10px #ffcc00; }
-        #brand { position: absolute; bottom: 20px; right: 20px; color: #8844ff; font-size: 14px; opacity: 0.7; }
-        #startScreen { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; }
-        #startScreen h1 { font-size: 48px; color: #ffcc00; text-shadow: 0 0 20px #ffcc00; margin-bottom: 20px; }
-        #startBtn { padding: 15px 40px; font-size: 20px; background: linear-gradient(135deg, #ffcc00, #ff6600); border: none; border-radius: 10px; color: #0a0a1a; cursor: pointer; font-weight: bold; }
-        #startBtn:hover { transform: scale(1.05); }
     </style>
 </head>
 <body>
-    <div id="ui"><div>Счёт: <span id="score">0</span></div><div>Жизни: <span id="lives">3</span></div></div>
-    <div id="brand">ALGOKOSMOS.COM</div>
-    <div id="startScreen">
-        <h1>ALGOKOSMOS</h1>
-        <p style="color:#888;margin-bottom:30px;">Breakout — разбей все кирпичи!</p>
-        <button id="startBtn">НАЧАТЬ ИГРУ</button>
-    </div>
     <canvas id="gameCanvas"></canvas>
-    <script>
-        const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
-        let score = 0, lives = 3, gameRunning = false;
-        const paddle = { x: 0, y: 0, w: 100, h: 14 };
-        const ball = { x: 0, y: 0, r: 7, dx: 4, dy: -4 };
-        let bricks = []; const BRICK_ROWS = 6, BRICK_COLS = 10, BRICK_W = 0, BRICK_H = 22, PAD = 4, OFFSET_TOP = 60;
-        const colors = ['#ff0055','#ff6600','#ffcc00','#00ff88','#00ccff','#aa00ff'];
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
+    import { BallPhysics } from '../../engine/physics.js';
 
-        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; paddle.y = canvas.height - 40; }
-        function initBricks() {
-            bricks = []; const bw = (canvas.width - 40) / BRICK_COLS - PAD;
-            for (let r = 0; r < BRICK_ROWS; r++) for (let c = 0; c < BRICK_COLS; c++)
-                bricks.push({ x: 20 + c * (bw + PAD), y: OFFSET_TOP + r * (BRICK_H + PAD), w: bw, h: BRICK_H, color: colors[r], alive: true });
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+    const audio = new Audio();
+    const ball = new BallPhysics();
+
+    let score = 0, lives = 3;
+    const paddle = { x: 0, y: 0, w: 100, h: 14 };
+    let bricks = [];
+    const ROWS = 6, COLS = 10, PAD = 4, OFFSET = 60, BH = 22;
+    const colors = ['#ff0055','#ff6600','#ffcc00','#00ff88','#00ccff','#aa00ff'];
+
+    function initBricks() {
+        bricks = [];
+        const bw = (game.w - 40) / COLS - PAD;
+        for (let row = 0; row < ROWS; row++)
+            for (let col = 0; col < COLS; col++)
+                bricks.push({ x: 20 + col * (bw + PAD), y: OFFSET + row * (BH + PAD), w: bw, h: BH, color: colors[row], alive: true });
+    }
+
+    game.onResize(() => { paddle.y = game.h - 40; });
+
+    game.update = function() {
+        paddle.x = input.mouseX - paddle.w / 2;
+        ball.update(1/60);
+        ball.bounceWalls(game.w, game.h);
+
+        if (ball.bouncePaddle(paddle, paddle.w, paddle.h)) audio.hit();
+
+        if (ball.isBelow(game.h)) {
+            lives--;
+            if (lives <= 0) { audio.die(); game.stop(); ui.showGameOver(score, () => { score=0;lives=3;initBricks();ball.reset(paddle.x+paddle.w/2,paddle.y-ball.r-5);game.start(); }); }
+            else ball.reset(paddle.x + paddle.w/2, paddle.y - ball.r - 5);
         }
-        function resetBall() { ball.x = paddle.x + paddle.w / 2; ball.y = paddle.y - ball.r - 5; ball.dx = 4 * (Math.random() > 0.5 ? 1 : -1); ball.dy = -4; }
 
-        function draw() {
-            ctx.fillStyle = '#0a0a1a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            // Bricks
-            bricks.forEach(b => { if (!b.alive) return; ctx.fillStyle = b.color; ctx.shadowColor = b.color; ctx.shadowBlur = 8; ctx.fillRect(b.x, b.y, b.w, b.h); });
-            // Paddle
-            ctx.fillStyle = '#ffcc00'; ctx.shadowColor = '#ffcc00'; ctx.shadowBlur = 15;
-            ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
-            // Ball
-            ctx.fillStyle = '#fff'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 20;
-            ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
-            ctx.shadowBlur = 0;
-        }
-
-        function update() {
-            paddle.x += 0; // controlled by mouse
-            ball.x += ball.dx; ball.y += ball.dy;
-            if (ball.x - ball.r < 0 || ball.x + ball.r > canvas.width) ball.dx *= -1;
-            if (ball.y - ball.r < 0) ball.dy *= -1;
-            if (ball.y + ball.r > canvas.height) { lives--; document.getElementById('lives').textContent = lives; if (lives <= 0) gameOver(); else resetBall(); }
-            // Paddle
-            if (ball.y + ball.r > paddle.y && ball.x > paddle.x && ball.x < paddle.x + paddle.w) {
-                ball.dy = -Math.abs(ball.dy); const hit = (ball.x - paddle.x) / paddle.w - 0.5; ball.dx = hit * 8;
+        bricks.forEach(b => {
+            if (!b.alive) return;
+            if (ball.x + ball.r > b.x && ball.x - ball.r < b.x + b.w && ball.y + ball.r > b.y && ball.y - ball.r < b.y + b.h) {
+                ball.dy = -Math.abs(ball.dy);
+                b.alive = false;
+                score += 10;
+                audio.eat();
             }
-            // Bricks
-            bricks.forEach(b => {
-                if (!b.alive) return;
-                if (ball.x + ball.r > b.x && ball.x - ball.r < b.x + b.w && ball.y + ball.r > b.y && ball.y - ball.r < b.y + b.h) {
-                    ball.dy *= -1; b.alive = false; score += 10; document.getElementById('score').textContent = score;
-                }
-            });
-            if (bricks.every(b => !b.alive)) { alert('Победа! Счёт: ' + score); score = 0; lives = 3; initBricks(); resetBall(); }
+        });
+
+        if (bricks.every(b => !b.alive)) {
+            audio.win();
+            initBricks();
+            ball.reset(paddle.x + paddle.w/2, paddle.y - ball.r - 5);
         }
+    };
 
-        function loop() { if (!gameRunning) return; draw(); update(); requestAnimationFrame(loop); }
-        document.addEventListener('mousemove', e => { paddle.x = e.clientX - paddle.w / 2; });
-        canvas.addEventListener('touchmove', e => { e.preventDefault(); paddle.x = e.touches[0].clientX - paddle.w / 2; });
+    game.draw = function() {
+        r.gradientBg('#0a0a2a', '#1a0a3a');
+        bricks.forEach(b => { if (b.alive) r.rect(b.x, b.y, b.w, b.h, b.color, 8); });
+        r.rect(paddle.x, paddle.y, paddle.w, paddle.h, '#ffcc00');
+        r.circle(ball.x, ball.y, ball.r, '#ffffff', 20);
+        ui.drawHUD(game.ctx, [{label:'Счёт',value:score,color:'#ffcc00'},{label:'Жизни',value:lives,color:'#ffcc00'}]);
+        ui.drawBrand(game.ctx, game.w, game.h);
+    };
 
-        function gameOver() { gameRunning = false; alert('Игра окончена! Счёт: ' + score); score = 0; lives = 3; document.getElementById('score').textContent = score; document.getElementById('lives').textContent = lives; initBricks(); document.getElementById('startScreen').style.display = 'block'; }
+    input.on('touchmove', e => { paddle.x = e.touches[0].clientX - paddle.w / 2; });
 
-        document.getElementById('startBtn').addEventListener('click', () => { document.getElementById('startScreen').style.display = 'none'; resize(); initBricks(); resetBall(); gameRunning = true; loop(); });
-        window.addEventListener('resize', resize); resize();
+    audio.init();
+    ui.showStart({
+        title: 'ALGOKOSMOS',
+        description: 'Breakout — разбей все кирпичи!',
+        color: '#ffcc00',
+        controls: 'Мышь / Тач — движение платформы',
+        onStart: () => { initBricks(); ball.reset(paddle.x + paddle.w/2, paddle.y - ball.r - 5); game.start(); }
+    });
     </script>
 </body>
 </html>

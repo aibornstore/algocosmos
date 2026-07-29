@@ -6,388 +6,139 @@
     <title>ALGOKOSMOS Doodle Jump</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            background: #0a0a1a; 
-            overflow: hidden;
-            font-family: 'Segoe UI', Arial, sans-serif;
-        }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
         #gameCanvas { display: block; }
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: #00ff00;
-            font-size: 18px;
-            text-shadow: 0 0 10px #00ff00;
-        }
-        #brand {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            color: #8844ff;
-            font-size: 14px;
-            opacity: 0.7;
-        }
-        #startScreen {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            color: white;
-        }
-        #startScreen h1 {
-            font-size: 48px;
-            color: #00ff00;
-            text-shadow: 0 0 20px #00ff00;
-            margin-bottom: 20px;
-        }
-        #startScreen p {
-            color: #888;
-            margin-bottom: 30px;
-        }
-        #startBtn {
-            padding: 15px 40px;
-            font-size: 20px;
-            background: linear-gradient(135deg, #00ff00, #00cc66);
-            border: none;
-            border-radius: 10px;
-            color: white;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        #startBtn:hover { transform: scale(1.05); }
     </style>
 </head>
 <body>
-    <div id="ui">
-        <div>Счёт: <span id="score">0</span></div>
-        <div>Высота: <span id="height">0</span>м</div>
-    </div>
-    <div id="brand">ALGOKOSMOS.COM</div>
-    <div id="startScreen">
-        <h1>ALGOKOSMOS</h1>
-        <p>Doodle Jump — прыгай как можно выше!</p>
-        <button id="startBtn">НАЧАТЬ ИГРУ</button>
-    </div>
     <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
 
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        let score = 0;
-        let maxHeight = 0;
-        let gameRunning = false;
-        
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+    const audio = new Audio();
+
+    let score = 0, maxHeight = 0;
+    const player = { x: 200, y: 400, vx: 0, vy: 0, jumpForce: -12, gravity: 0.5 };
+    let platforms = [];
+    const PW = 70, PH = 15;
+    let stars = [];
+
+    function generatePlatform(y) {
+        const types = ['normal','normal','normal','moving','fragile'];
+        const type = types[Math.floor(Math.random() * types.length)];
+        return { x: Math.random() * (game.w - PW), y, width: PW, height: PH, type, speed: type === 'moving' ? (Math.random()*2+1)*(Math.random()>0.5?1:-1) : 0, broken: false };
+    }
+
+    function initPlatforms() {
+        platforms = [{ x: game.w/2 - PW/2, y: game.h - 100, width: PW, height: PH, type: 'normal', speed: 0, broken: false }];
+        for (let i = 0; i < 10; i++) platforms.push(generatePlatform(game.h - 150 - i * 80));
+    }
+
+    stars = r.makeStars(50, game.w, game.h);
+
+    game.update = function() {
+        player.vy += player.gravity;
+        player.x += player.vx;
+        player.y += player.vy;
+
+        if (player.x < -20) player.x = game.w + 20;
+        if (player.x > game.w + 20) player.x = -20;
+
+        if (player.vy > 0) {
+            platforms.forEach(p => {
+                if (p.type === 'fragile' && p.broken) return;
+                if (player.x > p.x - 10 && player.x < p.x + p.width + 10 && player.y + 20 > p.y && player.y + 20 < p.y + p.height + 10) {
+                    if (p.type === 'fragile') p.broken = true;
+                    player.y = p.y - 20;
+                    player.vy = player.jumpForce;
+                    audio.jump();
+                }
+            });
+        }
+
+        const h = Math.floor((game.h - player.y) / 10);
+        if (h > maxHeight) { maxHeight = h; score = maxHeight; }
+
+        platforms.forEach(p => {
+            if (p.type === 'moving') {
+                p.x += p.speed;
+                if (p.x < 0 || p.x > game.w - p.width) p.speed *= -1;
+            }
+        });
+
+        if (player.y < game.h / 3) {
+            const scroll = game.h / 3 - player.y;
+            player.y = game.h / 3;
+            platforms.forEach(p => p.y += scroll);
+            platforms = platforms.filter(p => p.y < game.h);
+            while (platforms.length < 10) {
+                const highest = Math.min(...platforms.map(p => p.y));
+                platforms.push(generatePlatform(highest - 80));
+            }
+        }
+
+        if (player.y > game.h + 50) {
+            audio.die(); game.stop();
+            ui.showGameOver(score, () => { score=0;maxHeight=0;player.x=game.w/2;player.y=game.h-100;player.vx=0;player.vy=0;initPlatforms();game.start(); });
+        }
+    };
+
+    game.draw = function() {
+        r.gradientBg('#1a0a3a', '#0a2a1a');
+        r.drawStars(stars, 0);
+
+        platforms.forEach(p => {
+            if (p.type === 'fragile' && p.broken) return;
+            const color = p.type === 'normal' ? '#00cc66' : p.type === 'moving' ? '#00ccff' : '#ffcc00';
+            r.rect(p.x, p.y, p.width, p.height, color, 10);
+        });
+
         // Player
-        const player = {
-            x: 200,
-            y: 400,
-            width: 40,
-            height: 40,
-            velocityX: 0,
-            velocityY: 0,
-            jumpForce: -12,
-            gravity: 0.5,
-            color: '#00ff00'
-        };
-        
-        // Platforms
-        let platforms = [];
-        const platformWidth = 70;
-        const platformHeight = 15;
-        
-        // Stars (background)
-        const stars = [];
-        
-        function initStars() {
-            stars.length = 0;
-            for (let i = 0; i < 50; i++) {
-                stars.push({
-                    x: Math.random() * canvas.width,
-                    y: Math.random() * canvas.height,
-                    size: Math.random() * 2,
-                    twinkle: Math.random() * Math.PI * 2
-                });
-            }
-        }
-        
-        function initPlatforms() {
-            platforms = [];
-            // Starting platform
-            platforms.push({
-                x: canvas.width / 2 - platformWidth / 2,
-                y: canvas.height - 100,
-                width: platformWidth,
-                height: platformHeight,
-                type: 'normal'
-            });
-            
-            // Generate platforms
-            for (let i = 0; i < 10; i++) {
-                platforms.push(generatePlatform(canvas.height - 150 - i * 80));
-            }
-        }
-        
-        function generatePlatform(y) {
-            const types = ['normal', 'normal', 'normal', 'moving', 'fragile'];
-            const type = types[Math.floor(Math.random() * types.length)];
-            
-            return {
-                x: Math.random() * (canvas.width - platformWidth),
-                y: y,
-                width: platformWidth,
-                height: platformHeight,
-                type: type,
-                speed: type === 'moving' ? (Math.random() * 2 + 1) * (Math.random() > 0.5 ? 1 : -1) : 0,
-                broken: false
-            };
-        }
-        
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        
-        function drawPlayer() {
-            ctx.fillStyle = player.color;
-            ctx.shadowColor = player.color;
-            ctx.shadowBlur = 15;
-            
-            // Body
-            ctx.fillRect(player.x - 15, player.y - 20, 30, 35);
-            
-            // Eyes
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(player.x - 8, player.y - 15, 6, 6);
-            ctx.fillRect(player.x + 2, player.y - 15, 6, 6);
-            
-            // Pupils
-            ctx.fillStyle = '#000';
-            ctx.fillRect(player.x - 6, player.y - 13, 3, 3);
-            ctx.fillRect(player.x + 4, player.y - 13, 3, 3);
-            
-            // Nose/mouth
-            ctx.fillStyle = '#ff0066';
-            ctx.fillRect(player.x - 2, player.y - 5, 4, 4);
-            
-            ctx.shadowBlur = 0;
-        }
-        
-        function drawPlatforms() {
-            platforms.forEach(platform => {
-                if (platform.type === 'fragile' && platform.broken) return;
-                
-                let color;
-                switch(platform.type) {
-                    case 'normal': color = '#00cc66'; break;
-                    case 'moving': color = '#00ccff'; break;
-                    case 'fragile': color = '#ffcc00'; break;
-                }
-                
-                ctx.fillStyle = color;
-                ctx.shadowColor = color;
-                ctx.shadowBlur = 10;
-                
-                // Platform with rounded corners
-                const radius = 5;
-                ctx.beginPath();
-                ctx.moveTo(platform.x + radius, platform.y);
-                ctx.lineTo(platform.x + platform.width - radius, platform.y);
-                ctx.quadraticCurveTo(platform.x + platform.width, platform.y, platform.x + platform.width, platform.y + radius);
-                ctx.lineTo(platform.x + platform.width, platform.y + platform.height - radius);
-                ctx.quadraticCurveTo(platform.x + platform.width, platform.y + platform.height, platform.x + platform.width - radius, platform.y + platform.height);
-                ctx.lineTo(platform.x + radius, platform.y + platform.height);
-                ctx.quadraticCurveTo(platform.x, platform.y + platform.height, platform.x, platform.y + platform.height - radius);
-                ctx.lineTo(platform.x, platform.y + radius);
-                ctx.quadraticCurveTo(platform.x, platform.y, platform.x + radius, platform.y);
-                ctx.closePath();
-                ctx.fill();
-                
-                ctx.shadowBlur = 0;
-            });
-        }
-        
-        function drawStars() {
-            stars.forEach(star => {
-                star.twinkle += 0.05;
-                const alpha = 0.3 + Math.sin(star.twinkle) * 0.3;
-                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-                ctx.fillRect(star.x, star.y, star.size, star.size);
-            });
-        }
-        
-        function updatePlayer() {
-            // Apply gravity
-            player.velocityY += player.gravity;
-            
-            // Apply velocity
-            player.x += player.velocityX;
-            player.y += player.velocityY;
-            
-            // Horizontal wrap
-            if (player.x < -20) player.x = canvas.width + 20;
-            if (player.x > canvas.width + 20) player.x = -20;
-            
-            // Platform collision (only when falling)
-            if (player.velocityY > 0) {
-                platforms.forEach(platform => {
-                    if (platform.type === 'fragile' && platform.broken) return;
-                    
-                    if (player.x > platform.x - 10 &&
-                        player.x < platform.x + platform.width + 10 &&
-                        player.y + 20 > platform.y &&
-                        player.y + 20 < platform.y + platform.height + 10) {
-                        
-                        if (platform.type === 'fragile') {
-                            platform.broken = true;
-                        }
-                        
-                        player.y = platform.y - 20;
-                        player.velocityY = player.jumpForce;
-                    }
-                });
-            }
-            
-            // Update score based on height
-            const currentHeight = Math.floor((canvas.height - player.y) / 10);
-            if (currentHeight > maxHeight) {
-                maxHeight = currentHeight;
-                score = maxHeight;
-                document.getElementById('score').textContent = score;
-                document.getElementById('height').textContent = maxHeight;
-            }
-        }
-        
-        function updatePlatforms() {
-            // Move moving platforms
-            platforms.forEach(platform => {
-                if (platform.type === 'moving') {
-                    platform.x += platform.speed;
-                    if (platform.x < 0 || platform.x > canvas.width - platform.width) {
-                        platform.speed *= -1;
-                    }
-                }
-            });
-            
-            // Scroll platforms when player goes up
-            if (player.y < canvas.height / 3) {
-                const scrollAmount = canvas.height / 3 - player.y;
-                player.y = canvas.height / 3;
-                
-                platforms.forEach(platform => {
-                    platform.y += scrollAmount;
-                });
-                
-                // Remove platforms that are below screen
-                platforms = platforms.filter(p => p.y < canvas.height);
-                
-                // Add new platforms at top
-                while (platforms.length < 10) {
-                    const highestPlatform = Math.min(...platforms.map(p => p.y));
-                    platforms.push(generatePlatform(highestPlatform - 80));
-                }
-            }
-        }
-        
-        function checkGameOver() {
-            if (player.y > canvas.height + 50) {
-                gameOver();
-            }
-        }
-        
-        function gameOver() {
-            gameRunning = false;
-            alert('Игра окончена! Счёт: ' + score);
-            score = 0;
-            maxHeight = 0;
-            document.getElementById('score').textContent = score;
-            document.getElementById('height').textContent = 0;
-            player.x = canvas.width / 2;
-            player.y = canvas.height - 100;
-            player.velocityX = 0;
-            player.velocityY = 0;
-            initPlatforms();
-            document.getElementById('startScreen').style.display = 'block';
-        }
-        
-        function gameLoop() {
-            if (!gameRunning) return;
-            
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Background
-            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            gradient.addColorStop(0, '#1a0a3a');
-            gradient.addColorStop(1, '#0a2a1a');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            drawStars();
-            drawPlatforms();
-            drawPlayer();
-            updatePlayer();
-            updatePlatforms();
-            checkGameOver();
-            
-            requestAnimationFrame(gameLoop);
-        }
-        
-        // Controls
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft' || e.key === 'a') {
-                player.velocityX = -5;
-            }
-            if (e.key === 'ArrowRight' || e.key === 'd') {
-                player.velocityX = 5;
-            }
-        });
-        
-        document.addEventListener('keyup', (e) => {
-            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'ArrowRight' || e.key === 'd') {
-                player.velocityX = 0;
-            }
-        });
-        
-        // Touch controls
-        canvas.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            const touchX = e.touches[0].clientX;
-            if (touchX < canvas.width / 2) {
-                player.velocityX = -5;
-            } else {
-                player.velocityX = 5;
-            }
-        });
-        
-        canvas.addEventListener('touchend', () => {
-            player.velocityX = 0;
-        });
-        
-        // Device tilt (mobile)
-        if (window.DeviceOrientationEvent) {
-            window.addEventListener('deviceorientation', (e) => {
-                if (e.gamma) {
-                    player.velocityX = e.gamma / 5;
-                }
-            });
-        }
-        
-        // Start game
-        document.getElementById('startBtn').addEventListener('click', () => {
-            document.getElementById('startScreen').style.display = 'none';
-            resizeCanvas();
-            initStars();
-            initPlatforms();
-            player.x = canvas.width / 2;
-            player.y = canvas.height - 100;
-            gameRunning = true;
-            gameLoop();
-        });
-        
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
+        r.rect(player.x - 15, player.y - 20, 30, 35, '#00ff00', 15);
+        r.rect(player.x - 8, player.y - 15, 6, 6, '#ffffff', 0);
+        r.rect(player.x + 2, player.y - 15, 6, 6, '#ffffff', 0);
+        r.rect(player.x - 6, player.y - 13, 3, 3, '#000', 0);
+        r.rect(player.x + 4, player.y - 13, 3, 3, '#000', 0);
+        r.rect(player.x - 2, player.y - 5, 4, 4, '#ff0066', 0);
+
+        ui.drawHUD(game.ctx, [{label:'Счёт',value:score,color:'#00ff00'},{label:'Высота',value:maxHeight+'м',color:'#00ff00'}]);
+        ui.drawBrand(game.ctx, game.w, game.h);
+    };
+
+    input.on('keydown', e => {
+        if (e.key === 'ArrowLeft' || e.key === 'a') player.vx = -5;
+        if (e.key === 'ArrowRight' || e.key === 'd') player.vx = 5;
+    });
+    input.on('keyup', e => {
+        if (['ArrowLeft','a','ArrowRight','d'].includes(e.key)) player.vx = 0;
+    });
+    input.on('touchmove', e => {
+        player.vx = e.touches[0].clientX < game.w / 2 ? -5 : 5;
+    });
+    input.on('touchend', () => { player.vx = 0; });
+
+    if (window.DeviceOrientationEvent) {
+        window.addEventListener('deviceorientation', e => { if (e.gamma) player.vx = e.gamma / 5; });
+    }
+
+    input.preventArrowScroll();
+    audio.init();
+
+    ui.showStart({
+        title: 'ALGOKOSMOS',
+        description: 'Doodle Jump — прыгай как можно выше!',
+        color: '#00ff00',
+        controls: '← → / WASD — движение | Тильт — мобильное управление',
+        onStart: () => { player.x = game.w/2; player.y = game.h-100; player.vx=0; player.vy=0; score=0; maxHeight=0; initPlatforms(); game.start(); }
+    });
     </script>
 </body>
 </html>

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Centipede</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
+
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+    const audio = new Audio();
+
+    const TILE = 24;
+    const COLS = 26;
+    const ROWS = 30;
+
+    let player = {};
+    let centipede = [];
+    let mushrooms = [];
+    let bullets = [];
+    let particles = [];
+    let score = 0, lives = 3, level = 1;
+    let moveDir = 1; // centipede direction
+
+    function initPlayer() {
+        player = {
+            x: Math.floor(COLS / 2), y: ROWS - 2,
+            shootCd: 0, dead: false, deadTimer: 0
+        };
+    }
+
+    function initCentipede() {
+        centipede = [];
+        const len = 8 + Math.min(level, 6);
+        for (let i = 0; i < len; i++) {
+            centipede.push({
+                x: Math.floor(COLS / 2) - i,
+                y: 0,
+                dir: 1,
+                isHead: i === 0,
+                alive: true
+            });
+        }
+        moveDir = 1;
+    }
+
+    function initMushrooms() {
+        mushrooms = [];
+        for (let i = 0; i < 20 + level * 3; i++) {
+            const x = Math.floor(Math.random() * COLS);
+            const y = Math.floor(Math.random() * (ROWS - 4)) + 2;
+            if (!mushrooms.some(m => m.x === x && m.y === y)) {
+                mushrooms.push({ x, y, hp: 4, maxHp: 4 });
+            }
+        }
+    }
+
+    function shoot() {
+        if (player.dead || player.shootCd > 0) return;
+        bullets.push({ x: player.x, y: player.y - 1, dy: -1, alive: true });
+        audio.shoot();
+        player.shootCd = 0.15;
+    }
+
+    function explode(x, y, color) {
+        for (let i = 0; i < 6; i++) {
+            particles.push({
+                x: x * TILE + TILE/2,
+                y: y * TILE + TILE/2,
+                vx: (Math.random() - 0.5) * 150,
+                vy: (Math.random() - 0.5) * 150,
+                life: 0.3 + Math.random() * 0.3,
+                color
+            });
+        }
+    }
+
+    function die() {
+        player.dead = true;
+        player.deadTimer = 1.5;
+        lives--;
+        audio.die();
+        explode(player.x, player.y, '#00ccff');
+        if (lives <= 0) {
+            game.stop();
+            ui.showGameOver(score, () => { score = 0; lives = 3; level = 1; initPlayer(); initCentipede(); initMushrooms(); bullets = []; game.start(); });
+        }
+    }
+
+    // ===== UPDATE =====
+    game.update = function(dt) {
+        player.shootCd = Math.max(0, player.shootCd - dt);
+
+        if (player.dead) {
+            player.deadTimer -= dt;
+            if (player.deadTimer <= 0) {
+                player.dead = false;
+                player.x = Math.floor(COLS / 2);
+                player.y = ROWS - 2;
+            }
+            return;
+        }
+
+        // Bullets
+        bullets.forEach(b => {
+            if (!b.alive) return;
+            b.y += b.dy;
+            if (b.y < 0) { b.alive = false; return; }
+
+            // Hit mushroom
+            const mush = mushrooms.find(m => m.x === b.x && m.y === Math.floor(b.y));
+            if (mush) {
+                b.alive = false;
+                mush.hp--;
+                audio.hit();
+                if (mush.hp <= 0) {
+                    mushrooms = mushrooms.filter(m => m !== mush);
+                    score += 1;
+                    explode(mush.x, mush.y, '#885533');
+                } else {
+                    explode(mush.x, mush.y, '#aa7744');
+                }
+                return;
+            }
+
+            // Hit centipede
+            const seg = centipede.find(s => s.alive && s.x === b.x && s.y === Math.floor(b.y));
+            if (seg) {
+                b.alive = false;
+                seg.alive = false;
+                score += 10;
+                audio.hit();
+                explode(seg.x, seg.y, '#00ff00');
+                // Leave mushroom where centipede died
+                if (!mushrooms.some(m => m.x === seg.x && m.y === seg.y)) {
+                    mushrooms.push({ x: seg.x, y: seg.y, hp: 4, maxHp: 4 });
+                }
+                return;
+            }
+        });
+        bullets = bullets.filter(b => b.alive);
+
+        // Centipede movement (grid-based)
+        // SKILL: Grid movement pattern (from Snake, Cycle 1)
+        let moveTimer = 0;
+        moveTimer += dt;
+        if (moveTimer > 0.1) {
+            moveTimer = 0;
+            centipede.forEach(seg => {
+                if (!seg.alive) return;
+                const nextX = seg.x + seg.dir;
+                // Check if can move forward
+                const blocked = nextX < 0 || nextX >= COLS ||
+                    mushrooms.some(m => m.x === nextX && m.y === seg.y) ||
+                    centipede.some(s => s !== seg && s.alive && s.x === nextX && s.y === seg.y);
+
+                if (blocked) {
+                    // Move down and reverse
+                    seg.y++;
+                    seg.dir *= -1;
+                    // If reached bottom, go back up
+                    if (seg.y >= ROWS) seg.y = 0;
+                } else {
+                    seg.x = nextX;
+                }
+            });
+        }
+
+        // Check if centipede reached player
+        centipede.forEach(seg => {
+            if (!seg.alive) return;
+            if (seg.x === player.x && seg.y === player.y) die();
+        });
+
+        // Centipede head shoots occasionally
+        centipede.forEach(seg => {
+            if (!seg.isHead || !seg.alive) return;
+            if (Math.random() < 0.002 * level) {
+                // Head dive attack
+                seg.y++;
+                if (seg.y >= ROWS) seg.y = 0;
+            }
+        });
+
+        // Check wave complete
+        if (centipede.every(s => !s.alive)) {
+            level++;
+            initCentipede();
+            audio.win();
+        }
+
+        // Particles
+        particles.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
+        particles = particles.filter(p => p.life > 0);
+    };
+
+    // ===== DRAW =====
+    game.draw = function() {
+        const ctx = game.ctx;
+        ctx.fillStyle = '#000011';
+        ctx.fillRect(0, 0, game.w, game.h);
+
+        const ox = (game.w - COLS * TILE) / 2;
+        const oy = (game.h - ROWS * TILE) / 2;
+
+        // Mushrooms
+        mushrooms.forEach(m => {
+            const sx = ox + m.x * TILE, sy = oy + m.y * TILE;
+            const hpRatio = m.hp / m.maxHp;
+            const green = Math.floor(100 + hpRatio * 155);
+            ctx.fillStyle = `rgb(${Math.floor(80 * hpRatio)}, ${green}, ${Math.floor(40 * hpRatio)})`;
+            ctx.beginPath();
+            ctx.arc(sx + TILE/2, sy + TILE/2 - 2, TILE/2 - 2, Math.PI, 0);
+            ctx.fill();
+            ctx.fillStyle = '#aa8866';
+            ctx.fillRect(sx + TILE/2 - 3, sy + TILE/2 - 2, 6, TILE/2 + 2);
+        });
+
+        // Centipede
+        centipede.forEach((seg, i) => {
+            if (!seg.alive) return;
+            const sx = ox + seg.x * TILE, sy = oy + seg.y * TILE;
+            const hue = seg.isHead ? '#00ff00' : '#00cc44';
+            ctx.fillStyle = hue;
+            ctx.shadowColor = hue;
+            ctx.shadowBlur = 6;
+            // Body
+            ctx.beginPath();
+            ctx.arc(sx + TILE/2, sy + TILE/2, TILE/2 - 2, 0, Math.PI * 2);
+            ctx.fill();
+            // Segment detail
+            ctx.fillStyle = '#008822';
+            ctx.beginPath();
+            ctx.arc(sx + TILE/2, sy + TILE/2, TILE/2 - 5, 0, Math.PI * 2);
+            ctx.fill();
+            // Eyes on head
+            if (seg.isHead) {
+                ctx.fillStyle = '#ff0000';
+                ctx.beginPath();
+                ctx.arc(sx + TILE/2 - 4, sy + TILE/2 - 3, 3, 0, Math.PI * 2);
+                ctx.arc(sx + TILE/2 + 4, sy + TILE/2 - 3, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+        });
+
+        // Bullets
+        ctx.fillStyle = '#ffff00';
+        ctx.shadowColor = '#ffff00';
+        ctx.shadowBlur = 6;
+        bullets.forEach(b => {
+            if (b.alive) ctx.fillRect(ox + b.x * TILE + TILE/2 - 1, oy + b.y * TILE, 3, TILE);
+        });
+        ctx.shadowBlur = 0;
+
+        // Player
+        if (!player.dead) {
+            const sx = ox + player.x * TILE, sy = oy + player.y * TILE;
+            ctx.fillStyle = '#00ccff';
+            ctx.shadowColor = '#00ccff';
+            ctx.shadowBlur = 10;
+            ctx.fillRect(sx + 4, sy + 2, TILE - 8, TILE - 4);
+            ctx.fillRect(sx + TILE/2 - 2, sy - 4, 4, 6);
+            ctx.shadowBlur = 0;
+        }
+
+        // Particles
+        particles.forEach(p => {
+            ctx.globalAlpha = Math.max(0, p.life * 2);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x - 1, p.y - 1, 3, 3);
+        });
+        ctx.globalAlpha = 1;
+
+        // HUD
+        ui.drawHUD(game.ctx, [
+            { label: 'Счёт', value: score, color: '#00ff00' },
+            { label: 'Жизни', value: lives, color: '#00ff00' },
+            { label: 'Уровень', value: level, color: '#ffcc00' }
+        ]);
+        ui.drawBrand(game.ctx, game.w, game.h);
+    };
+
+    // ===== INPUT =====
+    document.addEventListener('keydown', e => {
+        if (player.dead) return;
+        switch(e.key) {
+            case 'ArrowLeft': case 'a': player.x = Math.max(0, player.x - 1); break;
+            case 'ArrowRight': case 'd': player.x = Math.min(COLS - 1, player.x + 1); break;
+            case 'ArrowUp': case 'w': player.y = Math.max(ROWS / 2, player.y - 1); break;
+            case 'ArrowDown': case 's': player.y = Math.min(ROWS - 1, player.y + 1); break;
+            case ' ': shoot(); e.preventDefault(); break;
+            case 'p': game.pause(); break;
+        }
+    });
+    input.preventArrowScroll();
+    audio.init();
+
+    // Touch
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const tx = e.touches[0].clientX;
+        const ty = e.touches[0].clientY;
+        const ox = (game.w - COLS * TILE) / 2;
+        const oy = (game.h - ROWS * TILE) / 2;
+        player.x = Math.max(0, Math.min(COLS - 1, Math.floor((tx - ox) / TILE)));
+        player.y = Math.max(ROWS / 2, Math.min(ROWS - 1, Math.floor((ty - oy) / TILE)));
+    });
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); shoot(); });
+
+    // ===== START =====
+    ui.showStart({
+        title: 'CENTIPEDE',
+        subtitle: 'ALGOKOSMOS Edition',
+        description: 'Классический шутер с гусеницей! Стреляй по сегментам!',
+        color: '#00ff00',
+        controls: '← → ↑ ↓ движение | Пробел стрельба',
+        onStart: () => { initPlayer(); initCentipede(); initMushrooms(); score = 0; lives = 3; level = 1; bullets = []; game.start(); }
+    });
+    </script>
+</body>
+</html>

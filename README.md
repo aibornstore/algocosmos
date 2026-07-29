@@ -16,21 +16,36 @@
 | Space Invaders | ✅ Ready |
 | Doodle Jump | ✅ Ready |
 | Flappy Bird | ✅ Ready |
+| Prince of Persia | ✅ Ready |
+| Pac-Man | ✅ Ready |
+| Sokoban | ✅ Ready |
+| Snake | ✅ Ready |
+| Tetris | ✅ Ready |
+| Pong (vs AI / Local 2P) | ✅ Ready |
+| Contra (Run-and-gun) | ✅ Ready |
+| Mario Bros | ✅ Ready |
+| Galaga | ✅ Ready |
+| Frogger | ✅ Ready |
+| Asteroids | ✅ Ready |
+| Centipede | ✅ Ready |
+| Krunker (FPS) | ✅ Ready |
+| Claude of Duty (Three.js FPS) | ✅ Ready |
 
-### Мультиплеер (2+ игроков)
+### Мультиплеер (онлайн + одиночный режим)
 | Игра | Режим | Статус |
 |------|-------|--------|
-| Tetris Battle | 1v1 | ✅ Ready |
-| Pong Online | 1v1 | ✅ Ready |
-| Snake Arena | 20+ игроков | ✅ Ready |
-| Snake | Singleplayer | ✅ Ready |
-| Tetris | Singleplayer | ✅ Ready |
-| Pong | Local 2P | ✅ Ready |
+| Tanks (Battle City) | 1 / 2-8 игроков | ✅ Ready |
+| Snake Arena | 1 / 20+ игроков | ✅ Ready |
+| Bomberman | 1 / 2-4 игрока | ✅ Ready |
+| Pong Online | 1 / 1v1 | ✅ Ready |
+| Tetris Battle | 1 / 1v1 | ✅ Ready |
 
 ## Технологии
 
-- **Движок:** Three.js + WebGL
-- **Язык:** JavaScript / TypeScript
+- **Движок:** Canvas 2D (vanilla JS, no dependencies)
+- **Язык:** JavaScript (ES modules)
+- **Платформы:** Web (все браузеры), Mobile (touch controls)
+- **Engine модули:** core.js, input.js, ui.js, physics.js, renderer.js, audio.js
 - **Платформы:** Web (все браузеры), Mobile (PWA)
 
 ## Установка

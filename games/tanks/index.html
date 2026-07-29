@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Tanks — Battle City</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; margin: 0 auto; }
+        #menu { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; z-index: 10; background: rgba(0,0,0,0.92); padding: 30px 40px; border-radius: 15px; border: 2px solid #ffcc00; min-width: 380px; }
+        #menu h1 { font-size: 36px; color: #ffcc00; text-shadow: 0 0 20px #ffcc00; margin-bottom: 4px; }
+        #menu h2 { font-size: 16px; color: #ff8800; margin-bottom: 18px; }
+        #menu p { color: #888; margin-bottom: 8px; font-size: 13px; }
+        #menu input { padding: 8px 16px; font-size: 14px; border: 2px solid #ffcc00; background: #1a1a2a; color: white; border-radius: 5px; margin: 4px; width: 200px; }
+        #menu select { padding: 8px; font-size: 13px; border: 2px solid #ffcc00; background: #1a1a2a; color: white; border-radius: 5px; margin: 4px; }
+        #menu button { padding: 10px 24px; font-size: 15px; background: linear-gradient(135deg, #ffcc00, #ff8800); border: none; border-radius: 8px; color: #0a0a1a; cursor: pointer; margin: 6px; font-weight: bold; }
+        #menu button:hover { transform: scale(1.05); }
+        .separator { color: #555; margin: 12px 0; font-size: 12px; }
+        #status { position: absolute; top: 60px; width: 100%; text-align: center; color: #888; font-size: 14px; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="menu">
+        <h1>TANKS</h1>
+        <h2>ALGOKOSMOS Battle City</h2>
+        <p>Классические Танчики Денди</p>
+
+        <button onclick="startSingle()" style="width:220px;">ОДИН ИГРОК</button><br>
+
+        <div class="separator">─── мультиплеер ───</div>
+
+        <input type="text" id="playerName" placeholder="Ваше имя" value="Игрок"><br>
+        <input type="text" id="roomCode" placeholder="Код комнаты"><br>
+        <select id="maxPlayers">
+            <option value="2">2 игрока</option>
+            <option value="4" selected>4 игрока</option>
+            <option value="8">8 игроков</option>
+        </select><br>
+        <button onclick="createRoom()">Создать комнату</button>
+        <button onclick="joinRoom()">Войти</button>
+    </div>
+    <div id="status"></div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const TILE = 32;
+const MAP_W = 26;
+const MAP_H = 26;
+const COLORS = ['#ffff00','#00ffff','#ff00ff','#00ff88','#ff6600','#ff0066','#8844ff','#ffffff'];
+const NAMES  = ['Жёлтый','Голубой','Розовый','Зелёный','Оранжевый','Красный','Фиолетовый','Белый'];
+
+const LEVEL = [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,2,2,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,2,2,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0],
+    [0,0,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0],
+    [1,1,0,0,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,0,0,1,1],
+    [1,1,0,0,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,0,0,1,1],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,0],
+    [0,0,1,1,0,0,1,1,0,0,0,1,1,1,1,0,0,0,1,1,0,0,1,1,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,1,6,6,1,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,1,6,6,1,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+];
+
+const SPAWN = [
+    {x:0,y:0},{x:MAP_W-2,y:0},{x:0,y:MAP_H-2},{x:MAP_W-2,y:MAP_H-2},
+    {x:12,y:0},{x:0,y:12},{x:MAP_W-2,y:12},{x:12,y:MAP_H-2}
+];
+
+// ===== STATE =====
+let running = false, mode = 'menu'; // menu | single | multi
+let ws = null, myId = null, roomCode = '', isHost = false;
+let map = [], players = {}, bullets = [], explosions = [], enemies = [];
+let baseAlive = true, enemySpawnTimer = 0, gameTime = 0, wave = 0;
+
+// ===== ENTITIES =====
+function makePlayer(id, x, y, ci) {
+    return { id, x, y, dir:'up', speed:2.5, color:COLORS[ci%8], ci:ci%8, name:NAMES[ci%8],
+             hp:1, lives:3, score:0, cd:0, shield:3, bulletPow:1, kills:0, dead:false, respawn:0 };
+}
+
+function makeBullet(x, y, dir, owner, pow) {
+    const s = 5;
+    const d = {up:{dx:0,dy:-s},down:{dx:0,dy:s},left:{dx:-s,dy:0},right:{dx:s,dy:0}}[dir];
+    return { x, y, ...d, dir, owner, pow, alive:true };
+}
+
+function makeEnemy(x, y, type) {
+    const types = [
+        {speed:1.5,hp:1,color:'#888',score:100,sr:0.008},
+        {speed:2.5,hp:1,color:'#ccc',score:200,sr:0.015},
+        {speed:1.5,hp:3,color:'#f80',score:300,sr:0.012},
+        {speed:2.0,hp:2,color:'#f08',score:400,sr:0.02},
+    ];
+    const t = types[type%4];
+    return { x,y,dir:'down',speed:t.speed,hp:t.hp,color:t.color,score:t.score,sr:t.sr,cd:0,alive:true,type,ai:0 };
+}
+
+// ===== MAP =====
+function initMap() { map = LEVEL.map(r=>[...r]); baseAlive = true; }
+
+function walkable(tx, ty) {
+    for (const [cx,cy] of [[tx,ty],[tx+1.8,ty],[tx,ty+1.8],[tx+1.8,ty+1.8]]) {
+        const gx=Math.floor(cx), gy=Math.floor(cy);
+        if(gx<0||gx>=MAP_W||gy<0||gy>=MAP_H) return false;
+        const t=map[gy]?.[gx]??0;
+        if(t===1||t===2||t===3||t===6) return false;
+    }
+    return true;
+}
+
+// ===== RESIZE =====
+function resize() {
+    canvas.width = MAP_W*TILE;
+    canvas.height = MAP_H*TILE;
+    canvas.style.marginTop = Math.max(0,(window.innerHeight-canvas.height)/2)+'px';
+}
+window.addEventListener('resize',resize); resize();
+
+// ===== DRAWING =====
+function drawMap() {
+    for(let y=0;y<MAP_H;y++) for(let x=0;x<MAP_W;x++) {
+        const sx=x*TILE, sy=y*TILE;
+        switch(map[y][x]) {
+            case 1: // Brick
+                ctx.fillStyle='#8B4513'; ctx.fillRect(sx,sy,TILE,TILE);
+                ctx.strokeStyle='#654321'; ctx.lineWidth=1;
+                for(let by=0;by<4;by++) for(let bx=0;bx<2;bx++) {
+                    const ox=(by%2)*8;
+                    ctx.strokeRect(sx+bx*16+ox,sy+by*8,16,8);
+                }
+                break;
+            case 2: // Steel
+                ctx.fillStyle='#888'; ctx.fillRect(sx,sy,TILE,TILE);
+                ctx.fillStyle='#aaa'; ctx.fillRect(sx+2,sy+2,TILE-4,TILE-4);
+                ctx.strokeStyle='#666'; ctx.strokeRect(sx+4,sy+4,TILE-8,TILE-8);
+                break;
+            case 3: // Water
+                ctx.fillStyle='#04a'; ctx.fillRect(sx,sy,TILE,TILE);
+                ctx.fillStyle='#06c';
+                const w=Math.sin(Date.now()/300+x)*3;
+                ctx.fillRect(sx,sy+8+w,TILE,4); ctx.fillRect(sx,sy+20+w,TILE,4);
+                break;
+            case 4: // Tree
+                ctx.fillStyle='#060'; ctx.fillRect(sx,sy,TILE,TILE);
+                ctx.fillStyle='#080'; ctx.fillRect(sx+4,sy+4,12,12); ctx.fillRect(sx+16,sy+8,12,12);
+                break;
+            case 5: // Ice
+                ctx.fillStyle='#adf'; ctx.fillRect(sx,sy,TILE,TILE);
+                ctx.strokeStyle='#8be'; ctx.strokeRect(sx+4,sy+4,TILE-8,TILE-8);
+                break;
+            case 6: // Base
+                ctx.fillStyle=baseAlive?'#fc0':'#333'; ctx.fillRect(sx,sy,TILE,TILE);
+                if(baseAlive){ctx.fillStyle='#f80';ctx.beginPath();ctx.moveTo(sx+TILE/2,sy+4);ctx.lineTo(sx+TILE-4,sy+TILE-4);ctx.lineTo(sx+4,sy+TILE-4);ctx.closePath();ctx.fill();}
+                break;
+        }
+    }
+}
+
+function drawTank(x,y,dir,color,shield) {
+    const sx=x*TILE, sy=y*TILE;
+    ctx.fillStyle=color; ctx.shadowColor=color; ctx.shadowBlur=8;
+    ctx.fillRect(sx+4,sy+4,TILE-8,TILE-8);
+    ctx.fillStyle=color;
+    switch(dir){
+        case 'up':ctx.fillRect(sx+12,sy,8,TILE/2);break;
+        case 'down':ctx.fillRect(sx+12,sy+TILE/2,8,TILE/2);break;
+        case 'left':ctx.fillRect(sx,sy+12,TILE/2,8);break;
+        case 'right':ctx.fillRect(sx+TILE/2,sy+12,TILE/2,8);break;
+    }
+    ctx.fillStyle='#000';
+    if(dir==='up'||dir==='down'){ctx.fillRect(sx+2,sy+2,4,TILE-4);ctx.fillRect(sx+TILE-6,sy+2,4,TILE-4);}
+    else{ctx.fillRect(sx+2,sy+2,TILE-4,4);ctx.fillRect(sx+2,sy+TILE-6,TILE-4,4);}
+    ctx.shadowBlur=0;
+    if(shield>0){ctx.strokeStyle=Math.sin(Date.now()/50)>0?'#fff':'#0ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(sx+TILE/2,sy+TILE/2,TILE/2+2,0,Math.PI*2);ctx.stroke();}
+}
+
+function drawBullet(b){ctx.fillStyle='#ff0';ctx.shadowColor='#ff0';ctx.shadowBlur=6;ctx.fillRect(b.x-2,b.y-2,4,4);ctx.shadowBlur=0;}
+
+function drawExplosion(e){
+    const a=e.t/e.mt;
+    ctx.fillStyle=`rgba(255,${Math.floor(200*a)},0,${a})`;
+    ctx.beginPath();ctx.arc(e.x,e.y,e.r*(1-a)+4,0,Math.PI*2);ctx.fill();
+}
+
+// ===== UPDATE =====
+function update(dt) {
+    gameTime+=dt;
+
+    // Players
+    Object.values(players).forEach(p=>{
+        if(p.dead){p.respawn-=dt;if(p.respawn<=0){p.dead=false;p.hp=1;p.shield=3;const sp=SPAWN[p.ci%8];p.x=sp.x;p.y=sp.y;}return;}
+        p.cd=Math.max(0,p.cd-dt); p.shield=Math.max(0,p.shield-dt);
+    });
+
+    // Enemies
+    enemies.forEach(e=>{
+        if(!e.alive)return;
+        e.ai-=dt; e.cd=Math.max(0,e.cd-dt);
+        if(e.ai<=0){e.dir=['up','down','left','right'][Math.floor(Math.random()*4)];e.ai=1+Math.random()*2;}
+        let dx=0,dy=0,s=e.speed*dt*60;
+        switch(e.dir){case 'up':dy=-s;break;case 'down':dy=s;break;case 'left':dx=-s;break;case 'right':dx=s;break;}
+        if(walkable(e.x+dx,e.y+dy)){e.x+=dx;e.y+=dy;}else{e.ai=0;}
+        if(Math.random()<e.sr){bullets.push(makeBullet(e.x+.9,e.y+.9,e.dir,'enemy',1));e.cd=.5;}
+    });
+
+    // Bullets
+    bullets.forEach(b=>{
+        if(!b.alive)return;
+        b.x+=b.dx*dt*60; b.y+=b.dy*dt*60;
+        const gx=Math.floor(b.x),gy=Math.floor(b.y);
+        if(gx<0||gx>=MAP_W||gy<0||gy>=MAP_H){b.alive=false;return;}
+        const t=map[gy]?.[gx]??0;
+        if(t===1){map[gy][gx]=0;b.alive=false;explosions.push({x:b.x*TILE,y:b.y*TILE,r:16,t:.3,mt:.3});return;}
+        if(t===2){if(b.pow>=2)map[gy][gx]=0;b.alive=false;explosions.push({x:b.x*TILE,y:b.y*TILE,r:8,t:.2,mt:.2});return;}
+        if(t===6){baseAlive=false;b.alive=false;explosions.push({x:b.x*TILE,y:b.y*TILE,r:32,t:.5,mt:.5});return;}
+        Object.values(players).forEach(p=>{
+            if(p.dead||p.id===b.owner||p.shield>0)return;
+            if(Math.abs(b.x-(p.x+.9))<1&&Math.abs(b.y-(p.y+.9))<1){
+                b.alive=false;p.hp--;if(p.hp<=0){p.dead=true;p.lives--;p.respawn=2;explosions.push({x:(p.x+.9)*TILE,y:(p.y+.9)*TILE,r:24,t:.5,mt:.5});if(b.owner!=='enemy'){const k=players[b.owner];if(k)k.kills++;}}
+            }
+        });
+        enemies.forEach(e=>{
+            if(!e.alive||b.owner==='enemy')return;
+            if(Math.abs(b.x-(e.x+.9))<1&&Math.abs(b.y-(e.y+.9))<1){
+                b.alive=false;e.hp--;if(e.hp<=0){e.alive=false;const s=players[b.owner];if(s){s.score+=e.score;s.kills++;}explosions.push({x:(e.x+.9)*TILE,y:(e.y+.9)*TILE,r:24,t:.5,mt:.5});}
+            }
+        });
+        bullets.forEach(ob=>{if(ob===b||!ob.alive||!b.alive)return;if(Math.abs(b.x-ob.x)<.5&&Math.abs(b.y-ob.y)<.5){b.alive=false;ob.alive=false;}});
+    });
+    bullets=bullets.filter(b=>b.alive);
+    explosions.forEach(e=>e.t-=dt); explosions=explosions.filter(e=>e.t>0);
+
+    // Enemy spawn
+    enemySpawnTimer-=dt;
+    if(enemySpawnTimer<=0&&enemies.filter(e=>e.alive).length<4){
+        const sx=[0,Math.floor(MAP_W/2),MAP_W-2][Math.floor(Math.random()*3)];
+        enemies.push(makeEnemy(sx,0,Math.floor(Math.random()*4)));
+        enemySpawnTimer=3+Math.random()*2;
+    }
+}
+
+function draw() {
+    ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
+    drawMap();
+    Object.values(players).forEach(p=>{if(!p.dead)drawTank(p.x,p.y,p.dir,p.color,p.shield);});
+    enemies.forEach(e=>{if(e.alive)drawTank(e.x,e.y,e.dir,e.color,0);});
+    bullets.forEach(drawBullet);
+    explosions.forEach(drawExplosion);
+    // HUD
+    ctx.fillStyle='#fc0';ctx.font='12px Courier New';ctx.shadowColor='#fc0';ctx.shadowBlur=4;
+    const me=players[myId];
+    let hx=8,hy=canvas.height-10;
+    if(me){ctx.fillText(`♥ ${me.lives}  ★ ${me.score}  ✗ ${me.kills}`,hx,hy);}
+    ctx.fillText(`Враги: ${enemies.filter(e=>e.alive).length}`,hx+250,hy);
+    ctx.fillText(`База: ${baseAlive?'♥':'✗'}`,hx+380,hy);
+    ctx.shadowBlur=0;
+}
+
+// ===== INPUT =====
+const keys={};
+document.addEventListener('keydown',e=>{keys[e.key]=true;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();});
+document.addEventListener('keyup',e=>{keys[e.key]=false;});
+
+function handleInput(dt) {
+    const me=players[myId]; if(!me||me.dead)return;
+    const spd=me.speed*dt*60; let dx=0,dy=0;
+    if(keys['ArrowUp']||keys['w']){me.dir='up';dy=-spd;}
+    else if(keys['ArrowDown']||keys['s']){me.dir='down';dy=spd;}
+    else if(keys['ArrowLeft']||keys['a']){me.dir='left';dx=-spd;}
+    else if(keys['ArrowRight']||keys['d']){me.dir='right';dx=spd;}
+    if(walkable(me.x+dx,me.y+dy)){me.x+=dx;me.y+=dy;}
+    if(keys[' ']&&me.cd<=0){bullets.push(makeBullet(me.x+.9,me.y+.9,me.dir,myId,me.bulletPow));me.cd=.3;}
+    if(mode==='multi')send({type:'move',game:'tanks',room:roomCode,data:{x:me.x,y:me.y,dir:me.dir,hp:me.hp,dead:me.dead,score:me.score,kills:me.kills}});
+}
+
+// ===== GAME LOOP =====
+let lastT=0;
+function loop(ts){
+    if(!running)return;
+    const dt=Math.min((ts-lastT)/1000,.05);lastT=ts;
+    handleInput(dt);update(dt);draw();
+    requestAnimationFrame(loop);
+}
+
+// ===== SINGLE PLAYER =====
+window.startSingle=function(){
+    document.getElementById('menu').style.display='none';
+    mode='single'; initMap();
+    players={}; bullets=[]; explosions=[]; enemies=[]; wave=0;
+    myId='local'; players['local']=makePlayer('local',12,MAP_H-2,0);
+    enemySpawnTimer=2; gameTime=0;
+    running=true; lastT=performance.now();
+    requestAnimationFrame(loop);
+};
+
+// ===== MULTIPLAYER =====
+function connect(){
+    ws=new WebSocket(`ws://${location.hostname}:3000`);
+    ws.onopen=()=>console.log('Connected');
+    ws.onmessage=(e)=>{
+        const msg=JSON.parse(e.data);
+        switch(msg.type){
+            case 'joined': myId=msg.playerId; isHost=msg.players.length===1; break;
+            case 'player_joined': break;
+            case 'player_left': delete players[msg.playerId]; break;
+            case 'move': if(msg.playerId!==myId&&players[msg.playerId]){const p=players[msg.playerId];Object.assign(p,msg.data);} break;
+            case 'shoot': if(msg.playerId!==myId)bullets.push(makeBullet(msg.data.x,msg.data.y,msg.data.dir,msg.playerId,msg.data.pow)); break;
+            case 'start': startMulti(msg.players); break;
+        }
+    };
+}
+function send(msg){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(msg));}
+
+function startMulti(plList){
+    document.getElementById('menu').style.display='none';
+    mode='multi'; initMap();
+    players={}; bullets=[]; explosions=[]; enemies=[];
+    plList.forEach((p,i)=>{const sp=SPAWN[i%8];players[p.id]=makePlayer(p.id,sp.x,sp.y,i);if(p.name)players[p.id].name=p.name;});
+    enemySpawnTimer=2; gameTime=0;
+    running=true; lastT=performance.now();
+    requestAnimationFrame(loop);
+}
+
+window.createRoom=function(){
+    roomCode=document.getElementById('roomCode').value||Math.random().toString(36).substr(2,6);
+    const maxP=parseInt(document.getElementById('maxPlayers').value);
+    const name=document.getElementById('playerName').value||'Игрок';
+    connect();setTimeout(()=>send({type:'join',game:'tanks',room:roomCode,maxPlayers:maxP,name}),500);
+};
+window.joinRoom=function(){
+    roomCode=document.getElementById('roomCode').value;
+    if(!roomCode){alert('Введите код комнаты');return;}
+    const name=document.getElementById('playerName').value||'Игрок';
+    connect();setTimeout(()=>send({type:'join',game:'tanks',room:roomCode,name}),500);
+};
+
+// Touch
+let tsx,tsy;
+canvas.addEventListener('touchstart',e=>{e.preventDefault();tsx=e.touches[0].clientX;tsy=e.touches[0].clientY;});
+canvas.addEventListener('touchmove',e=>{
+    e.preventDefault();const me=players[myId];if(!me||me.dead)return;
+    const dx=e.touches[0].clientX-tsx,dy=e.touches[0].clientY-tsy;
+    if(Math.abs(dx)>Math.abs(dy)){me.dir=dx>0?'right':'left';keys['ArrowRight']=dx>0;keys['ArrowLeft']=dx<0;keys['ArrowUp']=keys['ArrowDown']=false;}
+    else{me.dir=dy>0?'down':'up';keys['ArrowDown']=dy>0;keys['ArrowUp']=dy<0;keys['ArrowLeft']=keys['ArrowRight']=false;}
+});
+canvas.addEventListener('touchend',e=>{keys['ArrowUp']=keys['ArrowDown']=keys['ArrowLeft']=keys['ArrowRight']=false;
+    const me=players[myId];if(me&&!me.dead&&me.cd<=0){bullets.push(makeBullet(me.x+.9,me.y+.9,me.dir,myId,me.bulletPow));me.cd=.3;}
+});
+</script>
+</body>
+</html>

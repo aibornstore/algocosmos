@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Sokoban</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        #gameCanvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
+
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+    const audio = new Audio();
+
+    const TILE = 48;
+    // 0=empty, 1=wall, 2=floor, 3=target, 4=box, 5=box-on-target, 6=player, 7=player-on-target
+    const LEVELS = [
+        // Level 1 — Tutorial
+        {
+            name: "Первые шаги",
+            map: [
+                [1,1,1,1,1,0,0,0],
+                [1,2,6,2,1,0,0,0],
+                [1,2,4,2,1,1,1,1],
+                [1,2,2,4,2,2,3,1],
+                [1,1,1,2,4,2,3,1],
+                [0,0,1,2,2,2,3,1],
+                [0,0,1,1,1,1,1,1],
+            ]
+        },
+        // Level 2
+        {
+            name: "Коридор",
+            map: [
+                [0,1,1,1,1,0],
+                [1,1,2,2,1,0],
+                [1,2,4,2,1,1],
+                [1,2,2,4,2,1],
+                [1,1,2,4,2,1],
+                [0,1,2,6,2,1],
+                [0,1,3,3,3,1],
+                [0,1,1,1,1,1],
+            ]
+        },
+        // Level 3
+        {
+            name: "Дворик",
+            map: [
+                [0,0,1,1,1,1,1,0],
+                [1,1,1,2,2,2,1,0],
+                [1,3,6,4,2,2,1,0],
+                [1,3,4,2,4,2,1,1],
+                [1,3,2,4,2,2,2,1],
+                [1,1,1,2,2,2,2,1],
+                [0,0,1,1,1,1,1,1],
+            ]
+        },
+        // Level 4
+        {
+            name: "Лабиринт",
+            map: [
+                [1,1,1,1,1,1,1,1],
+                [1,2,2,2,2,2,2,1],
+                [1,2,4,1,1,4,2,1],
+                [1,2,2,3,3,2,2,1],
+                [1,2,4,3,3,4,2,1],
+                [1,2,2,2,2,2,6,1],
+                [1,1,1,1,1,1,1,1],
+            ]
+        },
+        // Level 5
+        {
+            name: "Сложный",
+            map: [
+                [0,0,1,1,1,1,1,0],
+                [1,1,1,2,2,2,1,0],
+                [1,3,2,4,2,2,1,0],
+                [1,3,2,4,4,2,1,1],
+                [1,3,2,2,4,2,2,1],
+                [1,1,1,2,2,2,2,1],
+                [0,0,1,2,6,2,2,1],
+                [0,0,1,1,1,1,1,1],
+            ]
+        },
+        // Level 6
+        {
+            name: "Хранилище",
+            map: [
+                [1,1,1,1,1,1,1,1,1],
+                [1,2,2,2,1,2,2,2,1],
+                [1,2,4,2,1,2,4,2,1],
+                [1,2,4,2,2,2,4,2,1],
+                [1,2,4,2,1,2,4,2,1],
+                [1,1,1,2,1,2,2,2,1],
+                [0,0,1,3,3,3,3,2,1],
+                [0,0,1,3,3,6,2,2,1],
+                [0,0,1,1,1,1,1,1,1],
+            ]
+        },
+        // Level 7
+        {
+            name: "Двойной этаж",
+            map: [
+                [0,0,0,1,1,1,1,1,0],
+                [1,1,1,1,2,2,2,1,0],
+                [1,3,3,2,2,4,2,1,0],
+                [1,3,3,4,2,2,2,1,0],
+                [1,1,1,2,4,4,2,1,1],
+                [0,0,1,2,2,2,2,2,1],
+                [0,0,1,2,2,6,2,2,1],
+                [0,0,1,1,1,1,1,1,1],
+            ]
+        },
+        // Level 8
+        {
+            name: "Финал",
+            map: [
+                [0,0,0,1,1,1,1,1,1,0],
+                [1,1,1,1,2,2,2,2,1,0],
+                [1,3,3,2,2,1,2,2,1,0],
+                [1,3,3,4,2,1,2,2,1,0],
+                [1,3,3,2,4,2,4,2,1,1],
+                [1,1,1,2,4,2,4,2,2,1],
+                [0,0,1,2,2,2,2,2,2,1],
+                [0,0,1,2,2,6,2,2,2,1],
+                [0,0,1,1,1,1,1,1,1,1],
+            ]
+        },
+    ];
+
+    let currentLevel = 0;
+    let map = [];
+    let player = { x: 0, y: 0 };
+    let moves = 0;
+    let pushes = 0;
+    let history = [];
+    let mapW = 0, mapH = 0;
+    let offsetX = 0, offsetY = 0;
+
+    function loadLevel(idx) {
+        currentLevel = idx;
+        const lvl = LEVELS[idx];
+        map = lvl.map.map(row => [...row]);
+        mapH = map.length;
+        mapW = Math.max(...map.map(r => r.length));
+        // Pad rows
+        map = map.map(row => { while (row.length < mapW) row.push(0); return row; });
+        // Find player
+        for (let y = 0; y < mapH; y++)
+            for (let x = 0; x < mapW; x++)
+                if (map[y][x] === 6 || map[y][x] === 7) {
+                    player = { x, y };
+                    if (map[y][x] === 7) map[y][x] = 3; // player on target → target
+                    else map[y][x] = 2; // player → floor
+                }
+        moves = 0; pushes = 0; history = [];
+        // Center map
+        offsetX = (game.w - mapW * TILE) / 2;
+        offsetY = (game.h - mapH * TILE) / 2;
+    }
+
+    function isWall(x, y) { return x < 0 || x >= mapW || y < 0 || y >= mapH || map[y][x] === 1; }
+    function isBox(x, y) { return map[y]?.[x] === 4 || map[y]?.[x] === 5; }
+    function isTarget(x, y) { return map[y]?.[x] === 3 || map[y]?.[x] === 5; }
+    function isFloor(x, y) { const t = map[y]?.[x]; return t === 2 || t === 3 || t === 6 || t === 7; }
+
+    function move(dx, dy) {
+        const nx = player.x + dx;
+        const ny = player.y + dy;
+        if (isWall(nx, ny)) return;
+
+        const pushing = isBox(nx, ny);
+        if (pushing) {
+            const bx = nx + dx;
+            const by = ny + dy;
+            if (isWall(bx, by) || isBox(bx, by)) return;
+            // Save state
+            history.push({ px: player.x, py: player.y, map: map.map(r => [...r]), moves, pushes });
+            // Move box
+            const boxOnTarget = map[ny][nx] === 5;
+            map[ny][nx] = boxOnTarget ? 3 : 2; // clear box spot
+            const destIsTarget = map[by][bx] === 3;
+            map[by][bx] = destIsTarget ? 5 : 4; // place box
+            pushes++;
+            audio.hit();
+        } else {
+            history.push({ px: player.x, py: player.y, map: map.map(r => [...r]), moves, pushes });
+            audio.eat();
+        }
+
+        player.x = nx;
+        player.y = ny;
+        moves++;
+
+        // Check win
+        if (checkWin()) {
+            audio.win();
+            setTimeout(() => {
+                if (currentLevel + 1 < LEVELS.length) {
+                    loadLevel(currentLevel + 1);
+                } else {
+                    game.stop();
+                    ui.showWin(`Все ${LEVELS.length} уровней пройдены! Ходы: ${moves}`, () => { loadLevel(0); game.start(); });
+                }
+            }, 300);
+        }
+    }
+
+    function undo() {
+        if (history.length === 0) return;
+        const h = history.pop();
+        player.x = h.px; player.y = h.py;
+        map = h.map;
+        moves = h.moves; pushes = h.pushes;
+    }
+
+    function checkWin() {
+        for (let y = 0; y < mapH; y++)
+            for (let x = 0; x < mapW; x++)
+                if (map[y][x] === 4) return false; // box not on target
+        return true;
+    }
+
+    function drawTile(x, y, type) {
+        const sx = offsetX + x * TILE;
+        const sy = offsetY + y * TILE;
+        if (sx < -TILE || sx > game.w + TILE || sy < -TILE || sy > game.h + TILE) return;
+
+        switch(type) {
+            case 1: // Wall
+                ctx.fillStyle = '#2a2a4a';
+                ctx.fillRect(sx, sy, TILE, TILE);
+                ctx.fillStyle = '#3a3a5a';
+                ctx.fillRect(sx + 2, sy + 2, TILE - 4, TILE - 4);
+                ctx.strokeStyle = '#1a1a3a';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(sx, sy, TILE, TILE);
+                break;
+            case 2: // Floor
+                ctx.fillStyle = '#1a1a2a';
+                ctx.fillRect(sx, sy, TILE, TILE);
+                ctx.strokeStyle = '#222238';
+                ctx.strokeRect(sx, sy, TILE, TILE);
+                break;
+            case 3: // Target
+                ctx.fillStyle = '#1a1a2a';
+                ctx.fillRect(sx, sy, TILE, TILE);
+                ctx.fillStyle = '#ffcc00';
+                ctx.shadowColor = '#ffcc00';
+                ctx.shadowBlur = 8;
+                ctx.beginPath();
+                ctx.arc(sx + TILE/2, sy + TILE/2, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                break;
+            case 4: // Box
+                ctx.fillStyle = '#1a1a2a';
+                ctx.fillRect(sx, sy, TILE, TILE);
+                ctx.fillStyle = '#886622';
+                ctx.fillRect(sx + 4, sy + 4, TILE - 8, TILE - 8);
+                ctx.fillStyle = '#aa8833';
+                ctx.fillRect(sx + 8, sy + 8, TILE - 16, TILE - 16);
+                ctx.strokeStyle = '#664411';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(sx + 4, sy + 4, TILE - 8, TILE - 8);
+                // Cross
+                ctx.beginPath();
+                ctx.moveTo(sx + 4, sy + 4); ctx.lineTo(sx + TILE - 4, sy + TILE - 4);
+                ctx.moveTo(sx + TILE - 4, sy + 4); ctx.lineTo(sx + 4, sy + TILE - 4);
+                ctx.stroke();
+                break;
+            case 5: // Box on target
+                ctx.fillStyle = '#1a1a2a';
+                ctx.fillRect(sx, sy, TILE, TILE);
+                ctx.fillStyle = '#44aa44';
+                ctx.shadowColor = '#44aa44';
+                ctx.shadowBlur = 8;
+                ctx.fillRect(sx + 4, sy + 4, TILE - 8, TILE - 8);
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#66cc66';
+                ctx.fillRect(sx + 8, sy + 8, TILE - 16, TILE - 16);
+                ctx.strokeStyle = '#228822';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(sx + 4, sy + 4, TILE - 8, TILE - 8);
+                ctx.beginPath();
+                ctx.moveTo(sx + 4, sy + 4); ctx.lineTo(sx + TILE - 4, sy + TILE - 4);
+                ctx.moveTo(sx + TILE - 4, sy + 4); ctx.lineTo(sx + 4, sy + TILE - 4);
+                ctx.stroke();
+                break;
+        }
+    }
+
+    function drawPlayer() {
+        const sx = offsetX + player.x * TILE;
+        const sy = offsetY + player.y * TILE;
+        ctx.fillStyle = '#00ccff';
+        ctx.shadowColor = '#00ccff';
+        ctx.shadowBlur = 12;
+        // Body
+        ctx.fillRect(sx + 10, sy + 8, TILE - 20, TILE - 16);
+        // Head
+        ctx.beginPath();
+        ctx.arc(sx + TILE/2, sy + 14, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    const ctx = game.ctx;
+
+    game.draw = function() {
+        game.clear('#0a0a1a');
+        for (let y = 0; y < mapH; y++)
+            for (let x = 0; x < mapW; x++)
+                if (map[y][x] !== 0) drawTile(x, y, map[y][x]);
+        drawPlayer();
+
+        // HUD
+        r.text(`Уровень ${currentLevel + 1}: ${LEVELS[currentLevel].name}`, game.w/2, 25, '#ffcc00', 16, 'center');
+        r.text(`Ходы: ${moves}  Толчки: ${pushes}`, 15, game.h - 15, '#888', 14);
+        r.text(`Z — отмена  R — рестарт`, game.w - 15, game.h - 15, '#666', 12);
+        ui.drawBrand(game.ctx, game.w, game.h);
+    };
+
+    input.on('keydown', e => {
+        if (!game.running) return;
+        switch(e.key) {
+            case 'ArrowUp': case 'w': move(0, -1); break;
+            case 'ArrowDown': case 's': move(0, 1); break;
+            case 'ArrowLeft': case 'a': move(-1, 0); break;
+            case 'ArrowRight': case 'd': move(1, 0); break;
+            case 'z': case 'я': undo(); break;
+            case 'r': case 'к': loadLevel(currentLevel); break;
+            case 'n': case 'т': if (currentLevel + 1 < LEVELS.length) loadLevel(currentLevel + 1); break;
+            case 'p': game.pause(); break;
+        }
+    });
+
+    // Touch — swipe
+    input.on('touchend', (e, dx, dy) => {
+        if (Math.abs(dx) > Math.abs(dy)) {
+            move(dx > 0 ? 1 : -1, 0);
+        } else {
+            move(0, dy > 0 ? 1 : -1);
+        }
+    });
+
+    input.preventArrowScroll();
+    audio.init();
+
+    ui.showStart({
+        title: 'SOKOBAN',
+        subtitle: 'ALGOKOSMOS Edition',
+        description: 'Сдвинь все ящики на отмеченные места!',
+        color: '#ffcc00',
+        controls: '← → ↑ ↓ / WASD — движение | Z — отмена | R — рестарт | N — следующий | P — пауза',
+        onStart: () => { loadLevel(0); game.start(); }
+    });
+    </script>
+</body>
+</html>

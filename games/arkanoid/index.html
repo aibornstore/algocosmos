@@ -6,315 +6,104 @@
     <title>ALGOKOSMOS Arkanoid</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            background: #0a0a1a; 
-            overflow: hidden;
-            font-family: 'Segoe UI', Arial, sans-serif;
-        }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; }
         #gameCanvas { display: block; }
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: #00ffff;
-            font-size: 18px;
-            text-shadow: 0 0 10px #00ffff;
-        }
-        #brand {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            color: #8844ff;
-            font-size: 14px;
-            opacity: 0.7;
-        }
-        #startScreen {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            color: white;
-        }
-        #startScreen h1 {
-            font-size: 48px;
-            color: #00ffff;
-            text-shadow: 0 0 20px #00ffff;
-            margin-bottom: 20px;
-        }
-        #startScreen p {
-            color: #888;
-            margin-bottom: 30px;
-        }
-        #startBtn {
-            padding: 15px 40px;
-            font-size: 20px;
-            background: linear-gradient(135deg, #00ffff, #8844ff);
-            border: none;
-            border-radius: 10px;
-            color: white;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        #startBtn:hover { transform: scale(1.05); }
     </style>
 </head>
 <body>
-    <div id="ui">
-        <div>Счёт: <span id="score">0</span></div>
-        <div>Жизни: <span id="lives">3</span></div>
-        <div>Уровень: <span id="level">1</span></div>
-    </div>
-    <div id="brand">ALGOKOSMOS.COM</div>
-    <div id="startScreen">
-        <h1>ALGOKOSMOS</h1>
-        <p>Арканоид — классика в новом исполнении</p>
-        <button id="startBtn">НАЧАТЬ ИГРУ</button>
-    </div>
     <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
 
-    <script>
-        // ALGOKOSMOS Arkanoid - Three.js版本
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        // Game state
-        let score = 0;
-        let lives = 3;
-        let level = 1;
-        let gameRunning = false;
-        
-        // Paddle
-        const paddle = {
-            x: 400,
-            y: 560,
-            width: 100,
-            height: 15,
-            speed: 8,
-            dx: 0
-        };
-        
-        // Ball
-        const ball = {
-            x: 400,
-            y: 545,
-            radius: 8,
-            speed: 5,
-            dx: 5,
-            dy: -5
-        };
-        
-        // Bricks
-        const bricks = [];
-        const brickRows = 5;
-        const brickCols = 8;
-        const brickWidth = 70;
-        const brickHeight = 25;
-        const brickPadding = 5;
-        const brickOffsetTop = 60;
-        const brickOffsetLeft = 35;
-        
-        // Colors for bricks
-        const brickColors = ['#ff0055', '#ff6600', '#ffcc00', '#00ff88', '#00ccff'];
-        
-        function initBricks() {
-            bricks.length = 0;
-            for (let r = 0; r < brickRows; r++) {
-                for (let c = 0; c < brickCols; c++) {
-                    bricks.push({
-                        x: brickOffsetLeft + c * (brickWidth + brickPadding),
-                        y: brickOffsetTop + r * (brickHeight + brickPadding),
-                        width: brickWidth,
-                        height: brickHeight,
-                        color: brickColors[r],
-                        alive: true
-                    });
-                }
-            }
-        }
-        
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        
-        function drawPaddle() {
-            ctx.fillStyle = '#00ffff';
-            ctx.shadowColor = '#00ffff';
-            ctx.shadowBlur = 15;
-            ctx.fillRect(paddle.x - paddle.width/2, paddle.y, paddle.width, paddle.height);
-            ctx.shadowBlur = 0;
-        }
-        
-        function drawBall() {
-            ctx.beginPath();
-            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = '#ffffff';
-            ctx.shadowBlur = 20;
-            ctx.fill();
-            ctx.closePath();
-            ctx.shadowBlur = 0;
-        }
-        
-        function drawBricks() {
-            bricks.forEach(brick => {
-                if (brick.alive) {
-                    ctx.fillStyle = brick.color;
-                    ctx.shadowColor = brick.color;
-                    ctx.shadowBlur = 10;
-                    ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
-                    ctx.shadowBlur = 0;
-                }
-            });
-        }
-        
-        function movePaddle() {
-            paddle.x += paddle.dx;
-            if (paddle.x < paddle.width/2) paddle.x = paddle.width/2;
-            if (paddle.x > canvas.width - paddle.width/2) paddle.x = canvas.width - paddle.width/2;
-        }
-        
-        function moveBall() {
-            ball.x += ball.dx;
-            ball.y += ball.dy;
-            
-            // Wall collision
-            if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
-                ball.dx = -ball.dx;
-            }
-            if (ball.y - ball.radius < 0) {
-                ball.dy = -ball.dy;
-            }
-            
-            // Bottom - lose life
-            if (ball.y + ball.radius > canvas.height) {
-                lives--;
-                document.getElementById('lives').textContent = lives;
-                if (lives <= 0) {
-                    gameOver();
-                } else {
-                    resetBall();
-                }
-            }
-            
-            // Paddle collision
-            if (ball.y + ball.radius > paddle.y &&
-                ball.y - ball.radius < paddle.y + paddle.height &&
-                ball.x > paddle.x - paddle.width/2 &&
-                ball.x < paddle.x + paddle.width/2) {
-                ball.dy = -ball.dy;
-                // Adjust angle based on where ball hit paddle
-                let hitPoint = (ball.x - paddle.x) / (paddle.width/2);
-                ball.dx = hitPoint * 5;
-            }
-            
-            // Brick collision
-            bricks.forEach(brick => {
-                if (brick.alive) {
-                    if (ball.x + ball.radius > brick.x &&
-                        ball.x - ball.radius < brick.x + brick.width &&
-                        ball.y + ball.radius > brick.y &&
-                        ball.y - ball.radius < brick.y + brick.height) {
-                        ball.dy = -ball.dy;
-                        brick.alive = false;
-                        score += 10;
-                        document.getElementById('score').textContent = score;
-                        
-                        // Check win
-                        if (bricks.every(b => !b.alive)) {
-                            levelUp();
-                        }
-                    }
-                }
-            });
-        }
-        
-        function resetBall() {
-            ball.x = paddle.x;
-            ball.y = paddle.y - ball.radius - 5;
-            ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1);
-            ball.dy = -5;
-        }
-        
-        function levelUp() {
-            level++;
-            document.getElementById('level').textContent = level;
-            ball.speed += 1;
-            initBricks();
-            resetBall();
-        }
-        
-        function gameOver() {
-            gameRunning = false;
-            alert('Игра окончена! Счёт: ' + score);
-            score = 0;
-            lives = 3;
-            level = 1;
-            document.getElementById('score').textContent = score;
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+    const audio = new Audio();
+
+    let score = 0, lives = 3, level = 1;
+    const paddle = { x: 0, y: 0, w: 100, h: 15 };
+    const ball = { x: 0, y: 0, r: 8, dx: 5, dy: -5 };
+    let bricks = [];
+    const ROWS = 5, COLS = 8, BW = 70, BH = 25, PAD = 5, OFFSET = 60;
+    const colors = ['#ff0055','#ff6600','#ffcc00','#00ff88','#00ccff'];
+
+    function initBricks() {
+        bricks = [];
+        for (let row = 0; row < ROWS; row++)
+            for (let col = 0; col < COLS; col++)
+                bricks.push({ x: 35 + col * (BW + PAD), y: OFFSET + row * (BH + PAD), w: BW, h: BH, color: colors[row], alive: true });
+    }
+
+    function resetBall() {
+        ball.x = paddle.x + paddle.w / 2;
+        ball.y = paddle.y - ball.r - 5;
+        ball.dx = 5 * (Math.random() > 0.5 ? 1 : -1);
+        ball.dy = -5;
+    }
+
+    game.onResize(() => { paddle.y = game.h - 40; });
+
+    game.update = function() {
+        paddle.x = input.mouseX - paddle.w / 2;
+        ball.x += ball.dx; ball.y += ball.dy;
+
+        if (ball.x - ball.r < 0 || ball.x + ball.r > game.w) ball.dx *= -1;
+        if (ball.y - ball.r < 0) ball.dy *= -1;
+
+        if (ball.y + ball.r > game.h) {
+            lives--;
             document.getElementById('lives').textContent = lives;
-            document.getElementById('level').textContent = level;
-            initBricks();
-            resetBall();
-            document.getElementById('startScreen').style.display = 'block';
+            if (lives <= 0) { audio.die(); game.stop(); ui.showGameOver(score, () => { score=0;lives=3;level=1;initBricks();resetBall();game.start(); }); }
+            else resetBall();
         }
-        
-        function gameLoop() {
-            if (!gameRunning) return;
-            
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw background gradient
-            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            gradient.addColorStop(0, '#0a0a2a');
-            gradient.addColorStop(1, '#1a0a3a');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            drawBricks();
-            drawPaddle();
-            drawBall();
-            movePaddle();
-            moveBall();
-            
-            requestAnimationFrame(gameLoop);
+
+        if (ball.y + ball.r > paddle.y && ball.y - ball.r < paddle.y + paddle.h && ball.x > paddle.x && ball.x < paddle.x + paddle.w) {
+            ball.dy = -ball.dy;
+            const hit = (ball.x - paddle.x) / (paddle.w/2);
+            ball.dx = hit * 5;
+            audio.hit();
         }
-        
-        // Controls
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft' || e.key === 'a') paddle.dx = -paddle.speed;
-            if (e.key === 'ArrowRight' || e.key === 'd') paddle.dx = paddle.speed;
-        });
-        
-        document.addEventListener('keyup', (e) => {
-            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'ArrowRight' || e.key === 'd') {
-                paddle.dx = 0;
+
+        bricks.forEach(b => {
+            if (!b.alive) return;
+            if (ball.x + ball.r > b.x && ball.x - ball.r < b.x + b.w && ball.y + ball.r > b.y && ball.y - ball.r < b.y + b.h) {
+                ball.dy *= -1; b.alive = false; score += 10;
+                document.getElementById('score').textContent = score;
+                audio.eat();
             }
         });
-        
-        // Touch controls
-        canvas.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            paddle.x = e.touches[0].clientX;
-        });
-        
-        // Mouse controls
-        canvas.addEventListener('mousemove', (e) => {
-            paddle.x = e.clientX;
-        });
-        
-        // Start game
-        document.getElementById('startBtn').addEventListener('click', () => {
-            document.getElementById('startScreen').style.display = 'none';
-            resizeCanvas();
-            initBricks();
-            resetBall();
-            gameRunning = true;
-            gameLoop();
-        });
-        
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
+
+        if (bricks.every(b => !b.alive)) {
+            level++; document.getElementById('level').textContent = level;
+            ball.dx *= 1.1; ball.dy *= 1.1;
+            initBricks(); resetBall(); audio.win();
+        }
+    };
+
+    game.draw = function() {
+        r.gradientBg('#0a0a2a', '#1a0a3a');
+        bricks.forEach(b => { if (b.alive) r.rect(b.x, b.y, b.w, b.h, b.color, 10); });
+        r.rect(paddle.x, paddle.y, paddle.w, paddle.h, '#00ffff');
+        r.circle(ball.x, ball.y, ball.r, '#ffffff', 20);
+        ui.drawHUD(game.ctx, [{label:'Счёт',value:score,color:'#00ffff'},{label:'Жизни',value:lives,color:'#00ffff'},{label:'Уровень',value:level,color:'#00ffff'}]);
+        ui.drawBrand(game.ctx, game.w, game.h);
+    };
+
+    input.on('touchmove', e => { paddle.x = e.touches[0].clientX - paddle.w / 2; });
+    audio.init();
+
+    ui.showStart({
+        title: 'ALGOKOSMOS',
+        description: 'Арканоид — классика в новом исполнении',
+        color: '#00ffff',
+        controls: 'Мышь / Тач — движение платформы',
+        onStart: () => { initBricks(); resetBall(); game.start(); }
+    });
     </script>
 </body>
 </html>

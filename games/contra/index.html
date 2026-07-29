@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Contra</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
+
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+    const audio = new Audio();
+
+    const TILE = 32;
+    const GRAVITY = 600;
+
+    // Player state
+    let player = {};
+    let bullets = [];
+    let enemies = [];
+    let explosions = [];
+    let particles = [];
+    let camera = { x: 0 };
+    let score = 0, lives = 3;
+    let levelWidth = 0;
+    let keys = {};
+
+    // Level tile map (0=air, 1=ground, 2=platform, 3=wall)
+    function generateLevel() {
+        const w = 200;
+        levelWidth = w * TILE;
+        const map = [];
+        for (let y = 0; y < 15; y++) {
+            map[y] = [];
+            for (let x = 0; x < w; x++) {
+                if (y >= 12) map[y][x] = 1; // ground
+                else if (y === 11 && x > 10 && x < 20) map[y][x] = 2; // platform
+                else if (y === 9 && x > 30 && x < 40) map[y][x] = 2;
+                else if (y === 10 && x > 50 && x < 58) map[y][x] = 2;
+                else if (y === 8 && x > 70 && x < 80) map[y][x] = 2;
+                else if (y === 11 && x > 90 && x < 100) map[y][x] = 2;
+                else if (y >= 10 && x > 110 && x < 115) map[y][x] = 1; // hill
+                else if (y >= 9 && x > 112 && x < 114) map[y][x] = 1;
+                else if (y === 10 && x > 130 && x < 140) map[y][x] = 2;
+                else if (y === 8 && x > 150 && x < 160) map[y][x] = 2;
+                else if (y >= 11 && x > 170 && x < 180) map[y][x] = 1; // hill
+                else if (y >= 10 && x > 173 && x < 177) map[y][x] = 1;
+                else map[y][x] = 0;
+            }
+        }
+        return map;
+    }
+
+    let levelMap = [];
+
+    function isSolid(x, y) {
+        const gx = Math.floor(x), gy = Math.floor(y);
+        if (gx < 0 || gx >= levelWidth / TILE || gy < 0 || gy >= 15) return gy >= 12;
+        return levelMap[gy]?.[gx] === 1;
+    }
+
+    function isPlatform(x, y) {
+        const gx = Math.floor(x), gy = Math.floor(y);
+        if (gx < 0 || gx >= levelWidth / TILE || gy < 0 || gy >= 15) return false;
+        return levelMap[gy]?.[gx] === 2;
+    }
+
+    function initPlayer() {
+        player = {
+            x: 3 * TILE, y: 10 * TILE,
+            vx: 0, vy: 0,
+            w: 20, h: 30,
+            dir: 1, // 1=right, -1=left
+            onGround: false,
+            shooting: false,
+            shootCd: 0,
+            weapon: 'normal', // normal, spread, rapid
+            invincible: 3,
+            frame: 0
+        };
+    }
+
+    function spawnEnemies() {
+        enemies = [];
+        for (let i = 0; i < 40; i++) {
+            const x = 15 * TILE + i * 120 + Math.random() * 60;
+            const y = 11 * TILE;
+            enemies.push({
+                x, y, w: 20, h: 28,
+                vx: (Math.random() > 0.5 ? 1 : -1) * (1 + Math.random()),
+                vy: 0,
+                hp: 1, alive: true,
+                type: Math.floor(Math.random() * 3), // 0=walker, 1=gunner, 2=turret
+                shootCd: 1 + Math.random() * 2,
+                onGround: false
+            });
+        }
+    }
+
+    function shoot() {
+        if (player.shootCd > 0) return;
+        const spd = 8;
+        const dx = player.dir * spd;
+        bullets.push({ x: player.x + (player.dir > 0 ? player.w : 0), y: player.y + 10, dx, dy: 0, owner: 'player', alive: true });
+        audio.shoot();
+        player.shootCd = player.weapon === 'rapid' ? 0.1 : 0.2;
+
+        if (player.weapon === 'spread') {
+            bullets.push({ x: player.x + (player.dir > 0 ? player.w : 0), y: player.y + 10, dx: dx * 0.9, dy: -2, owner: 'player', alive: true });
+            bullets.push({ x: player.x + (player.dir > 0 ? player.w : 0), y: player.y + 10, dx: dx * 0.9, dy: 2, owner: 'player', alive: true });
+        }
+    }
+
+    // ===== UPDATE =====
+    game.update = function(dt) {
+        player.invincible = Math.max(0, player.invincible - dt);
+        player.shootCd = Math.max(0, player.shootCd - dt);
+        player.frame += dt * 8;
+
+        // Movement
+        const speed = 200;
+        player.vx = 0;
+        if (keys['ArrowLeft'] || keys['a']) { player.vx = -speed; player.dir = -1; }
+        if (keys['ArrowRight'] || keys['d']) { player.vx = speed; player.dir = 1; }
+
+        // Jump
+        if ((keys['ArrowUp'] || keys['w']) && player.onGround) {
+            player.vy = -350;
+            player.onGround = false;
+            audio.jump();
+        }
+
+        // Shoot
+        if (keys[' ']) shoot();
+
+        // Physics
+        player.vy += GRAVITY * dt;
+        player.x += player.vx * dt;
+        player.y += player.vy * dt;
+
+        // Ground collision
+        player.onGround = false;
+        if (isSolid(player.x + 2, player.y + player.h + 1) || isSolid(player.x + player.w - 2, player.y + player.h + 1)) {
+            player.y = Math.floor((player.y + player.h) / TILE) * TILE - player.h;
+            player.vy = 0;
+            player.onGround = true;
+        }
+        // Platform collision (only when falling)
+        if (player.vy > 0) {
+            if (isPlatform(player.x + 2, player.y + player.h) || isPlatform(player.x + player.w - 2, player.y + player.h)) {
+                const platY = Math.floor((player.y + player.h) / TILE) * TILE;
+                if (player.y + player.h - platY < 10) {
+                    player.y = platY - player.h;
+                    player.vy = 0;
+                    player.onGround = true;
+                }
+            }
+        }
+        // Wall collision
+        if (isSolid(player.x, player.y + 5) || isSolid(player.x, player.y + player.h - 5)) {
+            player.x = Math.ceil(player.x / TILE) * TILE;
+        }
+        if (isSolid(player.x + player.w, player.y + 5) || isSolid(player.x + player.w, player.y + player.h - 5)) {
+            player.x = Math.floor((player.x + player.w) / TILE) * TILE - player.w;
+        }
+        // Ceiling
+        if (isSolid(player.x + 2, player.y) || isSolid(player.x + player.w - 2, player.y)) {
+            player.y = Math.ceil(player.y / TILE) * TILE;
+            player.vy = 0;
+        }
+
+        // Boundaries
+        player.x = Math.max(0, Math.min(levelWidth - player.w, player.x));
+        if (player.y > 15 * TILE) { die(); }
+
+        // Camera
+        camera.x = player.x - game.w / 2;
+        camera.x = Math.max(0, Math.min(levelWidth - game.w, camera.x));
+
+        // Bullets
+        bullets.forEach(b => {
+            if (!b.alive) return;
+            b.x += b.dx * dt * 60;
+            b.y += b.dy * dt * 60;
+            if (b.x < camera.x - 50 || b.x > camera.x + game.w + 50) b.alive = false;
+            if (isSolid(b.x, b.y)) b.alive = false;
+
+            if (b.owner === 'player') {
+                enemies.forEach(e => {
+                    if (!e.alive) return;
+                    if (b.x > e.x && b.x < e.x + e.w && b.y > e.y && b.y < e.y + e.h) {
+                        b.alive = false;
+                        e.hp--;
+                        if (e.hp <= 0) {
+                            e.alive = false;
+                            score += 100;
+                            audio.hit();
+                            explosions.push({ x: e.x, y: e.y, timer: 0.4 });
+                        }
+                    }
+                });
+            } else {
+                if (player.invincible <= 0 && b.x > player.x && b.x < player.x + player.w && b.y > player.y && b.y < player.y + player.h) {
+                    b.alive = false;
+                    die();
+                }
+            }
+        });
+        bullets = bullets.filter(b => b.alive);
+
+        // Enemies
+        enemies.forEach(e => {
+            if (!e.alive) return;
+            const dist = player.x - e.x;
+            e.vy += GRAVITY * dt;
+            e.x += e.vx * dt * 60;
+            e.y += e.vy * dt * 60;
+
+            // Ground
+            if (isSolid(e.x + 2, e.y + e.h + 1) || isSolid(e.x + e.w - 2, e.y + e.h + 1)) {
+                e.y = Math.floor((e.y + e.h) / TILE) * TILE - e.h;
+                e.vy = 0;
+                e.onGround = true;
+            }
+
+            // Turn at edges or walls
+            if (e.onGround && (!isSolid(e.x + (e.vx > 0 ? e.w + 5 : -5), e.y + e.h + 5) || isSolid(e.x + (e.vx > 0 ? e.w + 2 : -2), e.y + 5))) {
+                e.vx *= -1;
+            }
+
+            // Gunner shoots
+            if (e.type === 1 || e.type === 2) {
+                e.shootCd -= dt;
+                if (e.shootCd <= 0 && Math.abs(dist) < 400) {
+                    const dir = dist > 0 ? 1 : -1;
+                    bullets.push({ x: e.x + e.w/2, y: e.y + 10, dx: dir * 4, dy: 0, owner: 'enemy', alive: true });
+                    e.shootCd = 2 + Math.random();
+                }
+            }
+
+            // Touch damage
+            if (player.invincible <= 0 &&
+                player.x + player.w > e.x && player.x < e.x + e.w &&
+                player.y + player.h > e.y && player.y < e.y + e.h) {
+                die();
+            }
+        });
+
+        // Explosions
+        explosions.forEach(e => e.timer -= dt);
+        explosions = explosions.filter(e => e.timer > 0);
+
+        // Particles
+        particles = particles.filter(p => {
+            p.x += p.vx * dt; p.y += p.vy * dt;
+            p.life -= dt;
+            return p.life > 0;
+        });
+
+        // Weapon pickups (score milestones)
+        if (score > 0 && score % 500 === 0) {
+            // Auto upgrade at milestones
+        }
+    };
+
+    function die() {
+        if (player.invincible > 0) return;
+        lives--;
+        audio.die();
+        explosions.push({ x: player.x, y: player.y, timer: 0.5 });
+        for (let i = 0; i < 10; i++) {
+            particles.push({ x: player.x + 10, y: player.y + 15, vx: (Math.random()-0.5)*200, vy: (Math.random()-0.5)*200, life: 0.5, color: '#ffcc00' });
+        }
+        if (lives <= 0) {
+            game.stop();
+            ui.showGameOver(score, () => { score = 0; lives = 3; initPlayer(); spawnEnemies(); game.start(); });
+        } else {
+            player.x = Math.max(0, player.x - 100);
+            player.y = 10 * TILE;
+            player.vy = 0;
+            player.invincible = 3;
+        }
+    }
+
+    // ===== DRAW =====
+    game.draw = function() {
+        r.gradientBg('#0a1a0a', '#1a2a1a');
+
+        // Background mountains
+        const ctx = game.ctx;
+        ctx.fillStyle = '#0a2a0a';
+        for (let i = 0; i < 10; i++) {
+            const mx = i * 200 - (camera.x * 0.3) % 200;
+            ctx.beginPath();
+            ctx.moveTo(mx, game.h - 100);
+            ctx.lineTo(mx + 100, game.h - 200 - Math.sin(i) * 50);
+            ctx.lineTo(mx + 200, game.h - 100);
+            ctx.fill();
+        }
+
+        ctx.save();
+        ctx.translate(-camera.x, 0);
+
+        // Level tiles
+        const startX = Math.floor(camera.x / TILE);
+        const endX = Math.ceil((camera.x + game.w) / TILE);
+        for (let y = 0; y < 15; y++) {
+            for (let x = startX; x < endX; x++) {
+                if (!levelMap[y]) continue;
+                const sx = x * TILE, sy = y * TILE;
+                if (levelMap[y][x] === 1) {
+                    ctx.fillStyle = '#446633';
+                    ctx.fillRect(sx, sy, TILE, TILE);
+                    ctx.fillStyle = '#557744';
+                    ctx.fillRect(sx, sy, TILE, 4);
+                    ctx.strokeStyle = '#335522';
+                    ctx.strokeRect(sx, sy, TILE, TILE);
+                } else if (levelMap[y][x] === 2) {
+                    ctx.fillStyle = '#666655';
+                    ctx.fillRect(sx, sy, TILE, TILE);
+                    ctx.strokeStyle = '#555544';
+                    ctx.strokeRect(sx, sy, TILE, TILE);
+                }
+            }
+        }
+
+        // Explosions
+        explosions.forEach(e => {
+            const a = e.timer / 0.5;
+            ctx.fillStyle = `rgba(255, ${Math.floor(200*a)}, 0, ${a})`;
+            ctx.fillRect(e.x - 10, e.y - 10, 40, 40);
+        });
+
+        // Particles
+        particles.forEach(p => {
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x, p.y, 4, 4);
+            ctx.globalAlpha = 1;
+        });
+
+        // Enemies
+        enemies.forEach(e => {
+            if (!e.alive) return;
+            ctx.fillStyle = e.type === 0 ? '#ff4444' : e.type === 1 ? '#ff8844' : '#ff4488';
+            ctx.fillRect(e.x, e.y, e.w, e.h);
+            ctx.fillStyle = '#aa2222';
+            ctx.fillRect(e.x + 2, e.y + 2, e.w - 4, e.h - 4);
+            // Eyes
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(e.x + 4, e.y + 8, 4, 4);
+            ctx.fillRect(e.x + e.w - 8, e.y + 8, 4, 4);
+        });
+
+        // Bullets
+        bullets.forEach(b => {
+            ctx.fillStyle = b.owner === 'player' ? '#ffff00' : '#ff4444';
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.shadowBlur = 6;
+            ctx.fillRect(b.x - 2, b.y - 2, 4, 4);
+            ctx.shadowBlur = 0;
+        });
+
+        // Player
+        if (player.invincible > 0 && Math.sin(Date.now() / 80) > 0) {
+            // Blink
+        } else {
+            ctx.fillStyle = '#00ccff';
+            ctx.fillRect(player.x, player.y, player.w, player.h);
+            ctx.fillStyle = '#0088aa';
+            ctx.fillRect(player.x + 2, player.y + 2, player.w - 4, player.h - 4);
+            // Gun
+            ctx.fillStyle = '#cccccc';
+            const gunX = player.dir > 0 ? player.x + player.w : player.x - 10;
+            ctx.fillRect(gunX, player.y + 10, 10, 4);
+        }
+
+        ctx.restore();
+
+        // HUD
+        ui.drawHUD(game.ctx, [
+            { label: 'Счёт', value: score, color: '#00ccff' },
+            { label: 'Жизни', value: lives, color: '#00ccff' },
+            { label: 'Оружие', value: player.weapon, color: '#ffcc00' }
+        ]);
+        ui.drawBrand(game.ctx, game.w, game.h);
+    };
+
+    // ===== INPUT =====
+    document.addEventListener('keydown', e => { keys[e.key] = true; });
+    document.addEventListener('keyup', e => { keys[e.key] = false; });
+    input.preventArrowScroll();
+    audio.init();
+
+    // Touch controls
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); keys['ArrowRight'] = true; });
+    canvas.addEventListener('touchend', e => { keys['ArrowRight'] = false; keys[' '] = false; });
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        const x = e.touches[0].clientX;
+        keys['ArrowRight'] = x > game.w * 0.6;
+        keys['ArrowLeft'] = x < game.w * 0.4;
+    });
+
+    // ===== START =====
+    ui.showStart({
+        title: 'CONTRA',
+        subtitle: 'ALGOKOSMOS Edition',
+        description: 'Классический run-and-gun шутер!',
+        color: '#00ccff',
+        controls: '← → движение | ↑ прыжок | Пробел стрельба',
+        onStart: () => {
+            levelMap = generateLevel();
+            initPlayer();
+            spawnEnemies();
+            score = 0;
+            lives = 3;
+            game.start();
+        }
+    });
+    </script>
+</body>
+</html>
