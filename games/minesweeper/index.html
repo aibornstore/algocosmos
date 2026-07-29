@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Minesweeper</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+
+    const DIFFICULTIES = {
+        easy:   { cols: 9,  rows: 9,  mines: 10 },
+        medium: { cols: 16, rows: 16, mines: 40 },
+        hard:   { cols: 30, rows: 16, mines: 99 }
+    };
+
+    let difficulty = 'easy';
+    let cols, rows, mineCount;
+    let grid = [];
+    let revealed = [];
+    let flagged = [];
+    let cellSize = 32;
+    let offsetX = 0;
+    let offsetY = 0;
+    let gameOver = false;
+    let gameWon = false;
+    let firstClick = true;
+    let startTime = 0;
+    let elapsedTime = 0;
+    let minesRemaining = 0;
+    let cellsRevealed = 0;
+
+    function initGrid() {
+        const d = DIFFICULTIES[difficulty];
+        cols = d.cols;
+        rows = d.rows;
+        mineCount = d.mines;
+
+        grid = [];
+        revealed = [];
+        flagged = [];
+        for (let y = 0; y < rows; y++) {
+            grid[y] = [];
+            revealed[y] = [];
+            flagged[y] = [];
+            for (let x = 0; x < cols; x++) {
+                grid[y][x] = 0; // 0-8 = mine count, -1 = mine
+                revealed[y][x] = false;
+                flagged[y][x] = false;
+            }
+        }
+
+        // Calculate cell size to fit screen
+        const maxW = game.w - 40;
+        const maxH = game.h - 120;
+        cellSize = Math.min(Math.floor(maxW / cols), Math.floor(maxH / rows), 40);
+        offsetX = (game.w - cols * cellSize) / 2;
+        offsetY = 80;
+
+        gameOver = false;
+        gameWon = false;
+        firstClick = true;
+        startTime = 0;
+        elapsedTime = 0;
+        minesRemaining = mineCount;
+        cellsRevealed = 0;
+    }
+
+    function placeMines(safeX, safeY) {
+        let placed = 0;
+        while (placed < mineCount) {
+            const x = Math.floor(Math.random() * cols);
+            const y = Math.floor(Math.random() * rows);
+            // Don't place on first click or adjacent
+            if (Math.abs(x - safeX) <= 1 && Math.abs(y - safeY) <= 1) continue;
+            if (grid[y][x] === -1) continue;
+            grid[y][x] = -1;
+            placed++;
+        }
+
+        // Calculate numbers
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                if (grid[y][x] === -1) continue;
+                let count = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const nx = x + dx, ny = y + dy;
+                        if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && grid[ny][nx] === -1) {
+                            count++;
+                        }
+                    }
+                }
+                grid[y][x] = count;
+            }
+        }
+    }
+
+    function reveal(x, y) {
+        if (x < 0 || x >= cols || y < 0 || y >= rows) return;
+        if (revealed[y][x] || flagged[y][x]) return;
+
+        revealed[y][x] = true;
+        cellsRevealed++;
+
+        if (grid[y][x] === 0) {
+            // Flood fill
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    reveal(x + dx, y + dy);
+                }
+            }
+        }
+    }
+
+    function checkWin() {
+        return cellsRevealed === cols * rows - mineCount;
+    }
+
+    const NUMBER_COLORS = [
+        null,       // 0
+        '#00ccff',  // 1 blue
+        '#00ff88',  // 2 green
+        '#ff4444',  // 3 red
+        '#0044ff',  // 4 dark blue
+        '#ff4400',  // 5 maroon
+        '#00ffcc',  // 6 cyan
+        '#ffffff',  // 7 white
+        '#888888'   // 8 gray
+    ];
+
+    function drawGrid() {
+        const ctx = game.ctx;
+
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                const px = offsetX + x * cellSize;
+                const py = offsetY + y * cellSize;
+
+                if (revealed[y][x]) {
+                    // Revealed cell
+                    ctx.fillStyle = '#1a1a2e';
+                    ctx.fillRect(px, py, cellSize - 1, cellSize - 1);
+
+                    if (grid[y][x] === -1) {
+                        // Mine
+                        ctx.fillStyle = '#ff4444';
+                        ctx.shadowColor = '#ff0000';
+                        ctx.shadowBlur = 8;
+                        ctx.beginPath();
+                        ctx.arc(px + cellSize / 2, py + cellSize / 2, cellSize / 3, 0, Math.PI * 2);
+                        ctx.fill();
+                        // Spikes
+                        ctx.strokeStyle = '#ff4444';
+                        ctx.lineWidth = 2;
+                        for (let i = 0; i < 4; i++) {
+                            const angle = (i * Math.PI) / 2;
+                            ctx.beginPath();
+                            ctx.moveTo(px + cellSize / 2, py + cellSize / 2);
+                            ctx.lineTo(
+                                px + cellSize / 2 + Math.cos(angle) * cellSize / 2.5,
+                                py + cellSize / 2 + Math.sin(angle) * cellSize / 2.5
+                            );
+                            ctx.stroke();
+                        }
+                        ctx.shadowBlur = 0;
+                    } else if (grid[y][x] > 0) {
+                        // Number
+                        ctx.fillStyle = NUMBER_COLORS[grid[y][x]];
+                        ctx.font = `bold ${cellSize * 0.6}px Segoe UI`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(grid[y][x], px + cellSize / 2, py + cellSize / 2);
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'alphabetic';
+                    }
+                } else {
+                    // Unrevealed cell
+                    const isHover = !gameOver && !gameWon &&
+                        Math.floor((input.mouseX - offsetX) / cellSize) === x &&
+                        Math.floor((input.mouseY - offsetY) / cellSize) === y;
+
+                    ctx.fillStyle = isHover ? '#2a2a4e' : '#222244';
+                    ctx.fillRect(px, py, cellSize - 1, cellSize - 1);
+
+                    // 3D effect
+                    ctx.fillStyle = '#333355';
+                    ctx.fillRect(px, py, cellSize - 1, 2);
+                    ctx.fillRect(px, py, 2, cellSize - 1);
+
+                    if (flagged[y][x]) {
+                        // Flag
+                        ctx.fillStyle = '#ff6600';
+                        ctx.shadowColor = '#ff6600';
+                        ctx.shadowBlur = 6;
+                        // Pole
+                        ctx.fillRect(px + cellSize / 2 - 1, py + 4, 2, cellSize - 8);
+                        // Flag
+                        ctx.beginPath();
+                        ctx.moveTo(px + cellSize / 2 + 1, py + 4);
+                        ctx.lineTo(px + cellSize / 2 + cellSize / 3, py + 10);
+                        ctx.lineTo(px + cellSize / 2 + 1, py + 16);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    function drawHUD() {
+        const ctx = game.ctx;
+
+        // Top bar
+        ctx.fillStyle = '#16161e';
+        ctx.fillRect(0, 0, game.w, 60);
+
+        // Mines remaining
+        ctx.fillStyle = '#ff6600';
+        ctx.font = '20px Segoe UI';
+        ctx.textAlign = 'left';
+        ctx.fillText(`💣 ${minesRemaining}`, 20, 38);
+
+        // Timer
+        ctx.fillStyle = '#00ccff';
+        ctx.textAlign = 'right';
+        ctx.fillText(`⏱ ${elapsedTime}s`, game.w - 20, 38);
+
+        // Difficulty buttons
+        ctx.textAlign = 'center';
+        const btnY = 38;
+        const btns = ['easy', 'medium', 'hard'];
+        const labels = ['EASY', 'MEDIUM', 'HARD'];
+        const btnW = 90;
+        const startX = game.w / 2 - (btns.length * (btnW + 10)) / 2;
+
+        btns.forEach((d, i) => {
+            const bx = startX + i * (btnW + 10);
+            const isActive = difficulty === d;
+            ctx.fillStyle = isActive ? '#8844ff' : '#2a2a3a';
+            ctx.fillRect(bx, 12, btnW, 36);
+            ctx.fillStyle = isActive ? '#ffffff' : '#888888';
+            ctx.font = '14px Segoe UI';
+            ctx.fillText(labels[i], bx + btnW / 2, 35);
+        });
+
+        // Brand
+        r.text('ALGOKOSMOS.COM', game.w - 150, game.h - 10, '#444', 12);
+    }
+
+    function handleClick(e) {
+        if (gameOver || gameWon) return;
+
+        const x = Math.floor((e.clientX - offsetX) / cellSize);
+        const y = Math.floor((e.clientY - offsetY) / cellSize);
+
+        if (x < 0 || x >= cols || y < 0 || y >= rows) return;
+
+        if (e.button === 2 || e.ctrlKey) {
+            // Right click - flag
+            if (!revealed[y][x]) {
+                flagged[y][x] = !flagged[y][x];
+                minesRemaining += flagged[y][x] ? -1 : 1;
+            }
+            return;
+        }
+
+        if (flagged[y][x]) return;
+
+        if (firstClick) {
+            firstClick = false;
+            startTime = Date.now();
+            placeMines(x, y);
+        }
+
+        if (grid[y][x] === -1) {
+            // Hit mine
+            revealed[y][x] = true;
+            gameOver = true;
+            // Reveal all mines
+            for (let my = 0; my < rows; my++) {
+                for (let mx = 0; mx < cols; mx++) {
+                    if (grid[my][mx] === -1) revealed[my][mx] = true;
+                }
+            }
+        } else {
+            reveal(x, y);
+            if (checkWin()) {
+                gameWon = true;
+            }
+        }
+    }
+
+    // Mouse handling
+    game.canvas.addEventListener('click', handleClick);
+    game.canvas.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        handleClick(e);
+    });
+    game.canvas.addEventListener('mousemove', e => {
+        input.mouseX = e.clientX;
+        input.mouseY = e.clientY;
+    });
+
+    // Touch support
+    let touchTimer = null;
+    game.canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        touchTimer = setTimeout(() => {
+            // Long press = flag
+            handleClick({ clientX: touch.clientX, clientY: touch.clientY, button: 2 });
+            touchTimer = null;
+        }, 500);
+    });
+    game.canvas.addEventListener('touchend', e => {
+        e.preventDefault();
+        if (touchTimer) {
+            clearTimeout(touchTimer);
+            touchTimer = null;
+            const touch = e.changedTouches[0];
+            handleClick({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+        }
+    });
+    game.canvas.addEventListener('touchmove', e => {
+        clearTimeout(touchTimer);
+        touchTimer = null;
+    });
+
+    // Difficulty button clicks
+    game.canvas.addEventListener('click', e => {
+        const btnY = 12;
+        const btnH = 36;
+        const btnW = 90;
+        const btns = ['easy', 'medium', 'hard'];
+        const startX = game.w / 2 - (btns.length * (btnW + 10)) / 2;
+
+        if (e.clientY >= btnY && e.clientY <= btnY + btnH) {
+            btns.forEach((d, i) => {
+                const bx = startX + i * (btnW + 10);
+                if (e.clientX >= bx && e.clientX <= bx + btnW) {
+                    difficulty = d;
+                    initGrid();
+                }
+            });
+        }
+    });
+
+    game.update = function(dt) {
+        if (!firstClick && !gameOver && !gameWon) {
+            elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+        }
+    };
+
+    game.draw = function() {
+        r.gradientBg('#0a0a2a', '#1a0a3a');
+        drawGrid();
+        drawHUD();
+
+        if (gameOver) {
+            ui.overlay('GAME OVER', `Time: ${elapsedTime}s`, 'restart', initGrid, game);
+        }
+        if (gameWon) {
+            ui.overlay('YOU WIN!', `Time: ${elapsedTime}s | Mines: ${mineCount}`, 'restart', initGrid, game);
+        }
+    };
+
+    // Start
+    ui.startScreen('MINESWEEPER', 'ЛКМ — открыть, ПКМ — флаг, долгое нажатие (моб.) — флаг', () => {
+        initGrid();
+        game.start();
+    });
+    </script>
+</body>
+</html>

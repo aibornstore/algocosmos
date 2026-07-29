@@ -1,5 +1,5 @@
 // ALGOKOSMOS Engine — UI Components
-// Start screen, game over, HUD, brand
+// Start screen, game over, HUD, brand, back button
 
 export class UI {
     constructor(game) {
@@ -7,27 +7,94 @@ export class UI {
         this.brand = 'ALGOKOSMOS.COM';
     }
 
-    showStart(config) {
-        const { title = 'ALGOKOSMOS', subtitle = '', description = '', color = '#ffff00', controls = '', onStart } = config;
+    startScreen(title, description, onStart) {
         const el = document.createElement('div');
         el.id = 'startScreen';
         el.innerHTML = `
-            <h1 style="font-size:42px;color:${color};text-shadow:0 0 20px ${color},0 0 40px ${color}88;margin-bottom:10px;">${title}</h1>
-            ${subtitle ? `<h2 style="font-size:22px;color:${color}88;margin-bottom:25px;">${subtitle}</h2>` : ''}
-            <p style="color:#888;margin-bottom:15px;font-size:14px;">${description}</p>
-            <button id="startBtn" style="padding:12px 35px;font-size:18px;background:linear-gradient(135deg,${color},${color}88);border:none;border-radius:8px;color:#0a0a1a;font-weight:bold;cursor:pointer;">НАЧАТЬ ИГРУ</button>
-            ${controls ? `<div style="color:#666;font-size:12px;margin-top:20px;line-height:1.6;">${controls}</div>` : ''}
+            <div style="position:relative;">
+                <h1 style="font-size:42px;color:#ffff00;text-shadow:0 0 20px #ffff00,0 0 40px #ffff0088;margin-bottom:10px;">ALGOKOSMOS</h1>
+                <h2 style="font-size:28px;color:#8844ff;margin-bottom:25px;">${title}</h2>
+                <p style="color:#888;margin-bottom:20px;font-size:14px;max-width:400px;margin-left:auto;margin-right:auto;">${description}</p>
+                <button id="startBtn" style="padding:12px 35px;font-size:18px;background:linear-gradient(135deg,#8844ff,#00ccff);border:none;border-radius:8px;color:#0a0a1a;font-weight:bold;cursor:pointer;transition:transform 0.2s;">НАЧАТЬ ИГРУ</button>
+                <div style="color:#555;font-size:11px;margin-top:20px;">ALGOKOSMOS.COM © 2026 | MIT License</div>
+            </div>
         `;
         Object.assign(el.style, {
             position: 'absolute', top: '50%', left: '50%',
             transform: 'translate(-50%,-50%)', textAlign: 'center',
-            color: 'white', zIndex: '10'
+            color: 'white', zIndex: '10',
+            background: 'rgba(10,10,26,0.95)', padding: '40px',
+            borderRadius: '16px', border: '1px solid #2a2a3a',
+            boxShadow: '0 0 60px rgba(136,68,255,0.15)'
         });
         document.body.appendChild(el);
-        document.getElementById('startBtn').addEventListener('click', () => {
+
+        const btn = document.getElementById('startBtn');
+        btn.addEventListener('mouseenter', () => btn.style.transform = 'scale(1.05)');
+        btn.addEventListener('mouseleave', () => btn.style.transform = 'scale(1)');
+        btn.addEventListener('click', () => {
             el.remove();
+            this._addBackButton();
             if (onStart) onStart();
         });
+    }
+
+    overlay(title, text, buttonText, onAction, game) {
+        const el = document.createElement('div');
+        el.id = 'gameOverlay';
+        el.innerHTML = `
+            <h1 style="font-size:36px;color:#ffff00;margin-bottom:15px;text-shadow:0 0 20px #ffff0088;">${title}</h1>
+            <p style="color:#ccc;margin-bottom:20px;font-size:16px;">${text}</p>
+            <button id="actionBtn" style="padding:10px 30px;font-size:16px;background:linear-gradient(135deg,#8844ff,#00ccff);border:none;border-radius:8px;color:#0a0a1a;font-weight:bold;cursor:pointer;margin-right:10px;">${buttonText.toUpperCase()}</button>
+            <button id="hubBtn" style="padding:10px 20px;font-size:14px;background:transparent;border:1px solid #555;border-radius:8px;color:#888;cursor:pointer;">HUB</button>
+        `;
+        Object.assign(el.style, {
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%,-50%)', textAlign: 'center',
+            color: 'white', zIndex: '10',
+            background: 'rgba(10,10,26,0.95)', padding: '30px 40px',
+            borderRadius: '16px', border: '1px solid #2a2a3a'
+        });
+        document.body.appendChild(el);
+
+        document.getElementById('actionBtn').addEventListener('click', () => {
+            el.remove();
+            if (onAction) onAction();
+        });
+        document.getElementById('hubBtn').addEventListener('click', () => {
+            window.location.href = '../../index.html';
+        });
+    }
+
+    _addBackButton() {
+        const btn = document.createElement('button');
+        btn.id = 'backToHub';
+        btn.textContent = '← HUB';
+        btn.addEventListener('click', () => {
+            window.location.href = '../../index.html';
+        });
+        Object.assign(btn.style, {
+            position: 'fixed', top: '10px', left: '10px',
+            padding: '6px 14px', fontSize: '13px',
+            background: 'rgba(22,22,30,0.8)', border: '1px solid #333',
+            borderRadius: '6px', color: '#888', cursor: 'pointer',
+            zIndex: '100', transition: 'all 0.2s',
+            backdropFilter: 'blur(4px)'
+        });
+        btn.addEventListener('mouseenter', () => {
+            btn.style.color = '#fff';
+            btn.style.borderColor = '#8844ff';
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.color = '#888';
+            btn.style.borderColor = '#333';
+        });
+        document.body.appendChild(btn);
+    }
+
+    showStart(config) {
+        const { title = 'ALGOKOSMOS', subtitle = '', description = '', color = '#ffff00', controls = '', onStart } = config;
+        this.startScreen(subtitle || title, `${description} ${controls}`, onStart);
     }
 
     showGameOver(score, onRetry) {

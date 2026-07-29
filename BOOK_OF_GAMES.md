@@ -1,8 +1,8 @@
 # КНИГА ИГР ALGOKOSMOS
-## Oculus Orbit Cycle 6
+## Oculus Orbit Cycle 7
 
-**Дата:** 2026-07-28
-**Всего игр:** 24
+**Дата:** 2026-07-29
+**Всего игр:** 27
 **js13k изучено:** 5 репозиториев
 **Движок:** Shared Engine (Canvas 2D + vanilla JS)
 **Бренд:** ALGOKOSMOS.COM
@@ -27,8 +27,11 @@
 | 12 | Prince of Persia | Платформер-экшн | Singleplayer | 892 |
 | 13 | Pac-Man | Лабиринт | Singleplayer | ~350 |
 | 14 | Tanks | Battle City | Multiplayer 2-8 | ~400 |
+| 15 | Donkey Kong | Платформер | Singleplayer | ~350 |
+| 16 | Minesweeper | Логика | Singleplayer | ~280 |
+| 17 | Simon | Память | Singleplayer | ~250 |
 
-**Общий объём:** ~4,455 строк кода
+**Общий объём:** ~5,335 строк кода
 
 ---
 
@@ -282,9 +285,69 @@ function gameLoop() {
 
 ---
 
-## Арбитр: Вердикт Cycle 1
+## Глава 15: Donkey Kong
+
+**Жанр:** Платформер
+**Управление:** Стрелки / WASD + ↑ (прыжок/лестница)
+**Механика:** Мульти-этажный платформер, бочки, лестницы, молот.
+
+**Паттерны:**
+- Multi-floor tile map (4 этажа, лестницы)
+- Barrel rolling physics (гравитация + отскок от платформ)
+- Ladder climbing system (vertical movement, exit на стыке)
+- Hammer power-up (time-limited, уничтожает бочки)
+- Pauline rescue objective (добежать до верха)
+
+**Инварианты:**
+- Бочки катятся вниз по платформам, разворачиваются на краях
+- Лестницы работают только при vertical input
+- Молот действует 8 секунд
+
+---
+
+## Глава 16: Minesweeper
+
+**Жанр:** Логика
+**Управление:** ЛКМ (открыть), ПКМ/долгое нажатие (флаг)
+**Механика:** Открытие клеток, числа = количество мин рядом, flood fill на 0.
+
+**Паттерны:**
+- Grid-based mine placement (safe zone вокруг первого клика)
+- Flood fill reveal (рекурсивное открытие пустых клеток)
+- Flag system (toggle, счётчик мин)
+- 3 difficulties (9x9/10, 16x16/40, 30x16/99)
+- Touch: long press = flag (500ms)
+
+**Инварианты:**
+- Первый клик никогда не мина
+- Флаги не открываются кликом
+- Победа = все не-мины открыты
+
+---
+
+## Глава 17: Simon
+
+**Жанр:** Память
+**Управление:** Клик/тач по секторам, клавиши 1-4
+**Механика:** Запоминание последовательности цветов, повторение.
+
+**Паттерны:**
+- Circular button layout (секторы круга)
+- Web Audio API tones (частоты: C4, E4, G4, C5, A4, B4)
+- Sequence generation + playback (showing state)
+- Input validation (player state)
+- 3 modes: Classic (4), Extended (6), Speed (timer shrinks)
+
+**Инварианты:**
+- Последовательность растёт на +1 каждый раунд
+- Ошибка = game over
+- Звук каждого цвета уникален
+
+---
+
+## Арбитр: Вердикт Cycle 7
 
 **Статус:** ACCEPT
-**Evidence Score:** 12/12 игр каталогизированы
+**Evidence Score:** 27/27 игр каталогизированы
 **Навыки извлечены:** см. SKILLS_EXTRACTED.md
-**Следующий чекпоинт:** Cycle 2 — атомарная пересборка с новыми скилами
+**Следующий чекпоинт:** Cycle 8 — новые жанры, AI, procedural generation

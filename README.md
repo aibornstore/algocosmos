@@ -30,6 +30,9 @@
 | Centipede | ✅ Ready |
 | Krunker (FPS) | ✅ Ready |
 | Claude of Duty (Three.js FPS) | ✅ Ready |
+| Donkey Kong | ✅ Ready |
+| Minesweeper | ✅ Ready |
+| Simon | ✅ Ready |
 
 ### Мультиплеер (онлайн + одиночный режим)
 | Игра | Режим | Статус |

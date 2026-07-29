@@ -535,7 +535,63 @@ export function circleCircle(ax, ay, ar, bx, by, br) {
 
 ---
 
-## Сводная таблица скилов (Cycle 1-5)
+## Cycle 7: Новые скилы
+
+### 31. Barrel Roll Pattern
+**Описание:** Физика катящихся объектов с гравитацией, отскоком от платформ и разворотом на краях.
+**Паттерн:**
+```javascript
+// Barrel: гравитация + roll на платформе + reversal at edge
+barrel.vy += GRAVITY * dt;
+barrel.x += barrel.vx * dt;
+barrel.y += barrel.vy * dt;
+// Floor collision
+if (isSolid(feetX, feetY)) { barrel.y = feetY * TILE - barrel.h; barrel.vy = 0; }
+// Edge detection: если впереди нет пола — разворот
+if (!isSolid(aheadX, feetY)) barrel.vx *= -1;
+```
+**Инвариант:** Бочки всегда катятся вниз, разворачиваются на краях платформ.
+**Применение:** Donkey Kong
+
+### 32. Flood Fill Reveal
+**Описание:** Рекурсивное открытие связных пустых клеток (0 = нет мин рядом).
+**Паттерн:**
+```javascript
+function reveal(x, y) {
+    if (outOfBounds || revealed[y][x] || flagged[y][x]) return;
+    revealed[y][x] = true;
+    cellsRevealed++;
+    if (grid[y][x] === 0) {
+        for (let dy = -1; dy <= 1; dy++)
+            for (let dx = -1; dx <= 1; dx++)
+                reveal(x + dx, y + dy);
+    }
+}
+```
+**Инвариант:** Flood fill останавливается на клетках с числами (1-8).
+**Применение:** Minesweeper
+
+### 33. Circular Button Layout
+**Описание:** Кнопки-секторы круга с hit-test через polar coordinates.
+**Паттерн:**
+```javascript
+// Каждый сектор: startAngle..endAngle, innerR..outerR
+function hitTest(mx, my, buttons) {
+    const dx = mx - cx, dy = my - cy;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const angle = Math.atan2(dy, dx);
+    for (const b of buttons) {
+        if (dist >= b.innerR && dist <= b.outerR && angle in [start..end])
+            return b.index;
+    }
+}
+```
+**Инвариант:** Попадание определяется расстоянием от центра и углом.
+**Применение:** Simon
+
+---
+
+## Сводная таблица скилов (Cycle 1-7)
 
 | # | Скил | Модуль | Цикл |
 |---|------|--------|------|
@@ -569,3 +625,6 @@ export function circleCircle(ax, ay, ar, bx, by, br) {
 | 28 | Stomp Kill (Module) | physics.js | 5 |
 | 29 | Grid Overlap | physics.js | 5 |
 | 30 | Circle-Circle | physics.js | 5 |
+| 31 | Barrel Roll | inline | 7 |
+| 32 | Flood Fill | inline | 7 |
+| 33 | Circular Buttons | inline | 7 |

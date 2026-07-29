@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Donkey Kong</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
+
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+    const audio = new Audio();
+
+    const TILE = 32;
+    const GRAVITY = 600;
+    const COLS = 28;
+    const ROWS = 20;
+
+    // Tile types: 0=air, 1=floor, 2=ladder, 3=barrel, 4=hammer, 5=pauline, 6=dk
+    let levelMap = [];
+    let player = {};
+    let barrels = [];
+    let score = 0;
+    let lives = 3;
+    let level = 1;
+    let hammerActive = false;
+    let hammerTimer = 0;
+    let gameOver = false;
+    let gameWon = false;
+
+    function generateLevel() {
+        const map = [];
+        for (let y = 0; y < ROWS; y++) {
+            map[y] = [];
+            for (let x = 0; x < COLS; x++) {
+                map[y][x] = 0;
+            }
+        }
+
+        // Floor 1 (bottom) - row 18
+        for (let x = 0; x < COLS; x++) map[18][x] = 1;
+        // Gaps in floor 1
+        map[18][12] = 0; map[18][13] = 0;
+
+        // Floor 2 - row 14 (slightly tilted feel via offset)
+        for (let x = 2; x < COLS - 2; x++) map[14][x] = 1;
+        map[14][8] = 0; map[14][9] = 0;
+
+        // Floor 3 - row 10
+        for (let x = 2; x < COLS - 2; x++) map[10][x] = 1;
+        map[10][18] = 0; map[10][19] = 0;
+
+        // Floor 4 (top) - row 6
+        for (let x = 2; x < 16; x++) map[6][x] = 1;
+
+        // Ladders
+        // Floor 1 to 2
+        for (let y = 15; y <= 18; y++) map[y][5] = 2;
+        for (let y = 15; y <= 18; y++) map[y][20] = 2;
+        // Floor 2 to 3
+        for (let y = 11; y <= 14; y++) map[y][10] = 2;
+        for (let y = 11; y <= 14; y++) map[y][24] = 2;
+        // Floor 3 to 4
+        for (let y = 7; y <= 10; y++) map[y][3] = 2;
+        // Short ladders (within floors)
+        for (let y = 16; y <= 18; y++) map[y][15] = 2;
+        for (let y = 12; y <= 14; y++) map[y][16] = 2;
+
+        // Pauline at top
+        map[5][12] = 5;
+
+        // Donkey Kong
+        map[5][6] = 6;
+
+        // Hammer
+        map[17][22] = 4;
+
+        return map;
+    }
+
+    function initPlayer() {
+        player = {
+            x: 2 * TILE, y: 17 * TILE,
+            w: TILE - 4, h: TILE - 2,
+            vx: 0, vy: 0,
+            onGround: false,
+            climbing: false,
+            facing: 1,
+            animFrame: 0,
+            animTimer: 0
+        };
+    }
+
+    function startGame() {
+        levelMap = generateLevel();
+        barrels = [];
+        initPlayer();
+        score = 0;
+        lives = 3;
+        level = 1;
+        gameOver = false;
+        gameWon = false;
+        hammerActive = false;
+        hammerTimer = 0;
+    }
+
+    function spawnBarrel() {
+        barrels.push({
+            x: 6 * TILE + 16,
+            y: 6 * TILE + TILE,
+            w: TILE - 8,
+            h: TILE - 8,
+            vx: 2,
+            vy: 0,
+            onGround: false,
+            rolling: true,
+            angle: 0
+        });
+    }
+
+    // Collision helpers
+    function getTile(tx, ty) {
+        if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) return 0;
+        return levelMap[ty][tx];
+    }
+
+    function isSolid(tx, ty) {
+        const t = getTile(tx, ty);
+        return t === 1;
+    }
+
+    function isLadder(tx, ty) {
+        return getTile(tx, ty) === 2;
+    }
+
+    function rectOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+        return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    }
+
+    function updatePlayer(dt) {
+        const speed = 180;
+        const jumpForce = -320;
+        const px = player.x + player.w / 2;
+        const py = player.y + player.h;
+        const tileX = Math.floor(px / TILE);
+        const tileY = Math.floor(py / TILE);
+
+        // Check if on ladder
+        const onLadder = isLadder(tileX, tileY) || isLadder(tileX, Math.floor((player.y + 4) / TILE));
+
+        // Input
+        if (player.climbing) {
+            player.vx = 0;
+            player.vy = 0;
+            if (input.up) {
+                player.y -= speed * dt * 0.8;
+                // Check if climbed off top of ladder
+                if (!isLadder(tileX, Math.floor((player.y + player.h) / TILE))) {
+                    player.climbing = false;
+                    player.onGround = true;
+                }
+            }
+            if (input.down) {
+                player.y += speed * dt * 0.8;
+                // Check if climbed off bottom
+                const belowTile = Math.floor((player.y + player.h + 2) / TILE);
+                if (!isLadder(tileX, belowTile) && !isSolid(tileX, belowTile)) {
+                    player.climbing = false;
+                }
+                if (isSolid(tileX, belowTile)) {
+                    player.y = belowTile * TILE - player.h;
+                    player.climbing = false;
+                    player.onGround = true;
+                }
+            }
+            // Allow horizontal movement to exit ladder
+            if (input.left || input.right) {
+                player.climbing = false;
+            }
+        } else {
+            // Horizontal movement
+            player.vx = 0;
+            if (input.left) { player.vx = -speed; player.facing = -1; }
+            if (input.right) { player.vx = speed; player.facing = 1; }
+
+            // Jump
+            if (input.up && player.onGround) {
+                player.vy = jumpForce;
+                player.onGround = false;
+                audio.play('jump');
+            }
+
+            // Climb ladder
+            if ((input.up || input.down) && onLadder) {
+                player.climbing = true;
+                player.vy = 0;
+                player.x = tileX * TILE - player.w / 2 + TILE / 2;
+            }
+
+            // Gravity
+            if (!player.onGround) {
+                player.vy += GRAVITY * dt;
+            }
+
+            // Move
+            player.x += player.vx * dt;
+            player.y += player.vy * dt;
+
+            // Horizontal collision
+            const newTileX = Math.floor((player.x + player.w / 2) / TILE);
+            if (player.vx > 0 && isSolid(newTileX + 1, Math.floor((player.y + player.h / 2) / TILE))) {
+                player.x = (newTileX + 1) * TILE - player.w - 1;
+                player.vx = 0;
+            }
+            if (player.vx < 0 && isSolid(newTileX - 1, Math.floor((player.y + player.h / 2) / TILE))) {
+                player.x = (newTileX) * TILE + 1;
+                player.vx = 0;
+            }
+
+            // Floor collision
+            const feetTileY = Math.floor((player.y + player.h + 1) / TILE);
+            const feetTileX = Math.floor((player.x + player.w / 2) / TILE);
+            if (player.vy >= 0 && isSolid(feetTileX, feetTileY)) {
+                player.y = feetTileY * TILE - player.h;
+                player.vy = 0;
+                player.onGround = true;
+            } else if (!isSolid(feetTileX, feetTileY) && !player.climbing) {
+                player.onGround = false;
+            }
+        }
+
+        // Keep in bounds
+        if (player.x < 0) player.x = 0;
+        if (player.x + player.w > COLS * TILE) player.x = COLS * TILE - player.w;
+
+        // Animation
+        player.animTimer += dt;
+        if (player.animTimer > 0.15) {
+            player.animTimer = 0;
+            player.animFrame = (player.animFrame + 1) % 4;
+        }
+
+        // Hammer timer
+        if (hammerActive) {
+            hammerTimer -= dt;
+            if (hammerTimer <= 0) hammerActive = false;
+        }
+
+        // Check Pauline
+        if (rectOverlap(player.x, player.y, player.w, player.h,
+            12 * TILE, 5 * TILE, TILE, TILE)) {
+            gameWon = true;
+            score += 1000;
+        }
+
+        // Check hammer pickup
+        if (getTile(tileX, tileY) === 4 && !hammerActive) {
+            levelMap[tileY][tileX] = 0;
+            hammerActive = true;
+            hammerTimer = 8;
+            audio.play('powerup');
+        }
+    }
+
+    function updateBarrels(dt) {
+        // Spawn barrels periodically
+        if (Math.random() < 0.008 + level * 0.002) {
+            spawnBarrel();
+        }
+
+        barrels.forEach(b => {
+            // Gravity
+            b.vy += GRAVITY * dt;
+
+            // Move
+            b.x += b.vx * dt;
+            b.y += b.vy * dt;
+
+            // Floor collision
+            const feetX = Math.floor((b.x + b.w / 2) / TILE);
+            const feetY = Math.floor((b.y + b.h + 1) / TILE);
+            if (b.vy >= 0 && isSolid(feetX, feetY)) {
+                b.y = feetY * TILE - b.h;
+                b.vy = 0;
+                b.rolling = true;
+            }
+
+            // Roll on platforms — reverse at edges
+            if (b.rolling) {
+                const aheadX = b.vx > 0 ? feetX + 1 : feetX - 1;
+                if (!isSolid(aheadX, feetY) && !isSolid(aheadX, feetY - 1)) {
+                    // Check if there's a floor one tile down
+                    if (isSolid(aheadX, feetY + 1)) {
+                        // Fall to next platform
+                        b.rolling = false;
+                        b.vx = b.vx > 0 ? 1.5 + level * 0.2 : -(1.5 + level * 0.2);
+                    } else {
+                        b.vx *= -1;
+                    }
+                }
+            }
+
+            // Barrel rotation
+            b.angle += b.vx * dt * 3;
+
+            // Ladder descent (random chance)
+            if (b.rolling && Math.random() < 0.01) {
+                const bx = Math.floor((b.x + b.w / 2) / TILE);
+                const by = Math.floor((b.y + b.h) / TILE);
+                if (isLadder(bx, by + 1)) {
+                    b.rolling = false;
+                    b.vx = 0;
+                }
+            }
+
+            // Down ladders
+            if (!b.rolling) {
+                const bx = Math.floor((b.x + b.w / 2) / TILE);
+                const by = Math.floor((b.y + b.h) / TILE);
+                if (isLadder(bx, by + 1) || isLadder(bx, by)) {
+                    b.vy = 100;
+                } else if (isSolid(bx, by + 1)) {
+                    b.rolling = true;
+                    b.vx = (Math.random() > 0.5 ? 1 : -1) * (1.5 + level * 0.2);
+                }
+            }
+
+            // Player collision
+            if (rectOverlap(player.x, player.y, player.w, player.h,
+                b.x, b.y, b.w, b.h)) {
+                if (hammerActive) {
+                    // Destroy barrel
+                    b.x = -100;
+                    score += 100;
+                    audio.play('hit');
+                } else {
+                    playerHit();
+                }
+            }
+        });
+
+        // Remove off-screen barrels
+        barrels = barrels.filter(b => b.y < ROWS * TILE + 100 && b.x > -50);
+    }
+
+    function playerHit() {
+        lives--;
+        audio.play('death');
+        if (lives <= 0) {
+            gameOver = true;
+        } else {
+            initPlayer();
+        }
+    }
+
+    function drawLevel() {
+        const ctx = game.ctx;
+        for (let y = 0; y < ROWS; y++) {
+            for (let x = 0; x < COLS; x++) {
+                const t = levelMap[y][x];
+                const px = x * TILE;
+                const py = y * TILE;
+
+                if (t === 1) {
+                    // Floor
+                    r.rect(px, py, TILE, TILE, '#444466');
+                    // Girder pattern
+                    ctx.strokeStyle = '#555577';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(px + 1, py + 1, TILE - 2, TILE - 2);
+                    // Rivets
+                    ctx.fillStyle = '#777799';
+                    ctx.fillRect(px + 2, py + 2, 4, 4);
+                    ctx.fillRect(px + TILE - 6, py + TILE - 6, 4, 4);
+                } else if (t === 2) {
+                    // Ladder
+                    ctx.strokeStyle = '#00ccff';
+                    ctx.lineWidth = 2;
+                    ctx.shadowColor = '#00ccff';
+                    ctx.shadowBlur = 4;
+                    // Side rails
+                    ctx.beginPath();
+                    ctx.moveTo(px + 6, py);
+                    ctx.lineTo(px + 6, py + TILE);
+                    ctx.moveTo(px + TILE - 6, py);
+                    ctx.lineTo(px + TILE - 6, py + TILE);
+                    ctx.stroke();
+                    // Rungs
+                    ctx.beginPath();
+                    ctx.moveTo(px + 6, py + 8);
+                    ctx.lineTo(px + TILE - 6, py + 8);
+                    ctx.moveTo(px + 6, py + TILE - 8);
+                    ctx.lineTo(px + TILE - 6, py + TILE - 8);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                } else if (t === 4) {
+                    // Hammer
+                    ctx.fillStyle = '#ffaa00';
+                    ctx.shadowColor = '#ffaa00';
+                    ctx.shadowBlur = 10;
+                    ctx.fillRect(px + 10, py + 4, 12, 24);
+                    ctx.fillRect(px + 4, py + 4, 24, 8);
+                    ctx.shadowBlur = 0;
+                } else if (t === 5) {
+                    // Pauline
+                    ctx.fillStyle = '#ff66aa';
+                    ctx.shadowColor = '#ff66aa';
+                    ctx.shadowBlur = 8;
+                    // Body
+                    ctx.fillRect(px + 10, py + 10, 12, 18);
+                    // Head
+                    ctx.beginPath();
+                    ctx.arc(px + 16, py + 6, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Hair
+                    ctx.fillStyle = '#ff3388';
+                    ctx.fillRect(px + 8, py + 2, 16, 5);
+                    ctx.shadowBlur = 0;
+                    // "HELP!" text
+                    ctx.fillStyle = '#ff66aa';
+                    ctx.font = '10px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('HELP!', px + 16, py - 4);
+                    ctx.textAlign = 'left';
+                } else if (t === 6) {
+                    // Donkey Kong
+                    ctx.fillStyle = '#884422';
+                    ctx.shadowColor = '#ff6600';
+                    ctx.shadowBlur = 8;
+                    // Body
+                    ctx.fillRect(px + 4, py + 8, 24, 20);
+                    // Head
+                    ctx.beginPath();
+                    ctx.arc(px + 16, py + 6, 8, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Eyes
+                    ctx.fillStyle = '#ff0000';
+                    ctx.fillRect(px + 10, py + 3, 4, 4);
+                    ctx.fillRect(px + 18, py + 3, 4, 4);
+                    ctx.shadowBlur = 0;
+                }
+            }
+        }
+    }
+
+    function drawPlayer() {
+        const ctx = game.ctx;
+        const px = player.x;
+        const py = player.y;
+        const color = hammerActive ? '#ffaa00' : '#00ccff';
+
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
+
+        // Body
+        ctx.fillRect(px + 8, py + 10, 12, 16);
+
+        // Head
+        ctx.beginPath();
+        ctx.arc(px + 14, py + 6, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Legs (animated)
+        const legOffset = Math.sin(player.animFrame * 1.5) * 4;
+        ctx.fillRect(px + 6, py + 24, 5, 6 + legOffset);
+        ctx.fillRect(px + 15, py + 24, 5, 6 - legOffset);
+
+        // Arms
+        if (hammerActive) {
+            // Swing hammer
+            const swing = Math.sin(Date.now() / 100) * 15;
+            ctx.fillRect(px + 20, py + 12 + swing, 8, 4);
+            ctx.fillStyle = '#ffaa00';
+            ctx.fillRect(px + 26, py + 8 + swing, 6, 10);
+        } else {
+            ctx.fillRect(px + (player.facing > 0 ? 18 : -2), py + 12, 6, 4);
+        }
+
+        ctx.shadowBlur = 0;
+    }
+
+    function drawBarrels() {
+        const ctx = game.ctx;
+        barrels.forEach(b => {
+            ctx.save();
+            ctx.translate(b.x + b.w / 2, b.y + b.h / 2);
+            ctx.rotate(b.angle);
+            ctx.fillStyle = '#cc4400';
+            ctx.shadowColor = '#ff6600';
+            ctx.shadowBlur = 6;
+            ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+            // Barrel band
+            ctx.fillStyle = '#ffaa00';
+            ctx.fillRect(-b.w / 2, -2, b.w, 4);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        });
+    }
+
+    function drawHUD() {
+        const ctx = game.ctx;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '18px Segoe UI';
+        ctx.textAlign = 'left';
+        ctx.fillText(`SCORE: ${score}`, 10, 25);
+        ctx.fillText(`LIVES: ${'♥'.repeat(lives)}`, 10, 50);
+        ctx.fillText(`LEVEL: ${level}`, 10, 75);
+
+        if (hammerActive) {
+            ctx.fillStyle = '#ffaa00';
+            ctx.font = '16px Segoe UI';
+            ctx.fillText(`HAMMER: ${Math.ceil(hammerTimer)}s`, game.w - 160, 25);
+        }
+
+        // Brand
+        r.text('ALGOKOSMOS.COM', game.w - 150, game.h - 10, '#444', 12);
+    }
+
+    // Override game update/draw
+    game.update = function(dt) {
+        if (gameOver || gameWon) return;
+        updatePlayer(dt);
+        updateBarrels(dt);
+    };
+
+    game.draw = function() {
+        r.gradientBg('#1a0a2a', '#0a0a1a');
+        drawLevel();
+        drawBarrels();
+        drawPlayer();
+        drawHUD();
+    };
+
+    // Start
+    ui.startScreen('DONKEY KONG', 'Спасите Попаян! Избегайте бочек, подбирайте молот!', () => {
+        startGame();
+        game.start();
+    });
+
+    // Game over / win overlay
+    const origDraw = game.draw;
+    game.draw = function() {
+        origDraw();
+        if (gameOver) {
+            ui.overlay('GAME OVER', `Score: ${score}`, 'restart', startGame, game);
+        }
+        if (gameWon) {
+            ui.overlay('LEVEL COMPLETE!', `Score: ${score}`, 'next', () => {
+                level++;
+                startGame();
+            }, game);
+        }
+    };
+    </script>
+</body>
+</html>

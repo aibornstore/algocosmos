@@ -179,7 +179,7 @@
         <div class="subtitle">Open Source Game Platform</div>
         <div class="stats">
             <div class="stat">
-                <div class="stat-num">24</div>
+                <div class="stat-num">27</div>
                 <div class="stat-label">Games</div>
             </div>
             <div class="stat">
@@ -187,7 +187,7 @@
                 <div class="stat-label">Multiplayer</div>
             </div>
             <div class="stat">
-                <div class="stat-num">30</div>
+                <div class="stat-num">33</div>
                 <div class="stat-label">Skills</div>
             </div>
         </div>
@@ -201,6 +201,8 @@
         <button class="filter-btn" onclick="filterGames('puzzle')">Puzzle</button>
         <button class="filter-btn" onclick="filterGames('shooter')">Shooter</button>
         <button class="filter-btn" onclick="filterGames('platformer')">Platformer</button>
+        <button class="filter-btn" onclick="filterGames('memory')">Memory</button>
+        <button class="filter-btn" onclick="filterGames('logic')">Logic</button>
     </div>
 
     <h2 class="section-title">Singleplayer Games</h2>
@@ -235,6 +237,9 @@
         { id: 'prince-of-persia', title: 'Prince of Persia', genre: 'Platformer', icon: '⚔️', type: 'sp', tags: ['platformer'] },
         { id: 'krunker', title: 'Krunker FPS', genre: 'FPS', icon: '🎯', type: 'sp', tags: ['shooter'] },
         { id: 'claude-of-duty', title: 'Claude of Duty', genre: 'FPS', icon: '🎖️', type: 'sp', tags: ['shooter'] },
+        { id: 'donkey-kong', title: 'Donkey Kong', genre: 'Platformer', icon: '🦍', type: 'sp', tags: ['platformer'], isNew: true },
+        { id: 'minesweeper', title: 'Minesweeper', genre: 'Logic', icon: '💣', type: 'sp', tags: ['puzzle', 'logic'], isNew: true },
+        { id: 'simon', title: 'Simon', genre: 'Memory', icon: '🧠', type: 'sp', tags: ['memory', 'arcade'], isNew: true },
 
         // Multiplayer
         { id: 'pong', title: 'Pong', genre: 'Sport', icon: '🏓', type: 'mp', tags: ['arcade'], modes: '1P / 2P Local' },

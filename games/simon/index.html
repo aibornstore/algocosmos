@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALGOKOSMOS Simon</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; overflow: hidden; font-family: 'Courier New', monospace; }
+        #gameCanvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script type="module">
+    import { Game } from '../../engine/core.js';
+    import { Input } from '../../engine/input.js';
+    import { UI } from '../../engine/ui.js';
+    import { Renderer } from '../../engine/renderer.js';
+    import { Audio } from '../../engine/audio.js';
+
+    const game = new Game();
+    const input = new Input(game.canvas);
+    const ui = new UI(game);
+    const r = new Renderer(game.ctx);
+
+    const COLORS = [
+        { base: '#ff2222', light: '#ff6666', dark: '#991111', freq: 261.63 }, // Red - C4
+        { base: '#2222ff', light: '#6666ff', dark: '#111199', freq: 329.63 }, // Blue - E4
+        { base: '#22cc22', light: '#66ff66', dark: '#119911', freq: 392.00 }, // Green - G4
+        { base: '#ffcc00', light: '#ffee66', dark: '#997700', freq: 523.25 }, // Yellow - C5
+        { base: '#ff6600', light: '#ffaa44', dark: '#994400', freq: 440.00 }, // Orange - A4
+        { base: '#cc00ff', light: '#dd66ff', dark: '#770099', freq: 493.88 }, // Purple - B4
+    ];
+
+    const MODES = {
+        classic: { colors: 4, label: 'CLASSIC' },
+        extended: { colors: 6, label: 'EXTENDED' },
+        speed: { colors: 4, label: 'SPEED' }
+    };
+
+    let mode = 'classic';
+    let numColors = 4;
+    let sequence = [];
+    let playerIndex = 0;
+    let score = 0;
+    let highScore = 0;
+    let state = 'idle'; // idle, showing, input, gameover
+    let showIndex = 0;
+    let showTimer = 0;
+    let showInterval = 0.8;
+    let litButton = -1;
+    let litTimer = 0;
+    let flashAll = false;
+    let flashTimer = 0;
+
+    // Audio context for tones
+    let audioCtx = null;
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    function playTone(freq, duration = 0.3) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.value = 0.3;
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
+    function playErrorTone() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.value = 150;
+        gain.gain.value = 0.3;
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.8);
+    }
+
+    function getButtonLayout() {
+        const cx = game.w / 2;
+        const cy = game.h / 2 + 20;
+        const radius = Math.min(game.w, game.h) * 0.3;
+        const buttons = [];
+
+        for (let i = 0; i < numColors; i++) {
+            const angle = (i / numColors) * Math.PI * 2 - Math.PI / 2;
+            const nextAngle = ((i + 1) / numColors) * Math.PI * 2 - Math.PI / 2;
+            buttons.push({
+                cx, cy,
+                innerR: radius * 0.35,
+                outerR: radius,
+                startAngle: angle + 0.05,
+                endAngle: nextAngle - 0.05,
+                color: COLORS[i]
+            });
+        }
+        return buttons;
+    }
+
+    function hitTest(mx, my, buttons) {
+        const cx = game.w / 2;
+        const cy = game.h / 2 + 20;
+        const dx = mx - cx;
+        const dy = my - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        let angle = Math.atan2(dy, dx);
+
+        for (let i = 0; i < buttons.length; i++) {
+            const b = buttons[i];
+            if (dist >= b.innerR && dist <= b.outerR) {
+                // Normalize angle
+                let a = angle;
+                let start = b.startAngle;
+                let end = b.endAngle;
+                while (a < start) a += Math.PI * 2;
+                while (a > end + Math.PI * 2) a -= Math.PI * 2;
+                if (a >= start && a <= end) return i;
+            }
+        }
+        return -1;
+    }
+
+    function startRound() {
+        sequence.push(Math.floor(Math.random() * numColors));
+        showIndex = 0;
+        state = 'showing';
+        showTimer = 0;
+        showInterval = Math.max(0.3, 0.8 - sequence.length * 0.02);
+        playerIndex = 0;
+    }
+
+    function startGame() {
+        initAudio();
+        sequence = [];
+        score = 0;
+        state = 'idle';
+        flashAll = true;
+        flashTimer = 0.5;
+        setTimeout(() => {
+            flashAll = false;
+            startRound();
+        }, 600);
+    }
+
+    function handleInput(btnIndex) {
+        if (state !== 'input') return;
+
+        litButton = btnIndex;
+        litTimer = 0.3;
+        playTone(COLORS[btnIndex].freq, 0.3);
+
+        if (btnIndex === sequence[playerIndex]) {
+            playerIndex++;
+            if (playerIndex >= sequence.length) {
+                score++;
+                if (score > highScore) highScore = score;
+                state = 'idle';
+                setTimeout(startRound, 800);
+            }
+        } else {
+            // Wrong!
+            playErrorTone();
+            state = 'gameover';
+        }
+    }
+
+    function drawButtons() {
+        const ctx = game.ctx;
+        const buttons = getButtonLayout();
+
+        buttons.forEach((b, i) => {
+            const isLit = litButton === i || flashAll;
+            const color = isLit ? b.color.light : b.color.base;
+            const glowColor = isLit ? b.color.light : 'transparent';
+
+            ctx.beginPath();
+            ctx.moveTo(b.cx, b.cy);
+            ctx.arc(b.cx, b.cy, b.outerR, b.startAngle, b.endAngle);
+            ctx.closePath();
+
+            ctx.fillStyle = color;
+            if (isLit) {
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = 30;
+            }
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Inner circle
+            ctx.beginPath();
+            ctx.arc(b.cx, b.cy, b.innerR, 0, Math.PI * 2);
+            ctx.fillStyle = '#0a0a1a';
+            ctx.fill();
+        });
+
+        // Center circle
+        const cx = game.w / 2;
+        const cy = game.h / 2 + 20;
+        const buttons = getButtonLayout();
+        const innerR = buttons[0].innerR;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, innerR - 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#16161e';
+        ctx.fill();
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Score in center
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 28px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(score, cx, cy - 8);
+        ctx.font = '12px Segoe UI';
+        ctx.fillStyle = '#888';
+        ctx.fillText('SCORE', cx, cy + 12);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+    }
+
+    function drawHUD() {
+        const ctx = game.ctx;
+
+        // Title
+        ctx.fillStyle = '#8844ff';
+        ctx.font = 'bold 32px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.fillText('SIMON', game.w / 2, 40);
+
+        // High score
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = '16px Segoe UI';
+        ctx.fillText(`HIGH SCORE: ${highScore}`, game.w / 2, 65);
+
+        // State text
+        ctx.fillStyle = '#888';
+        ctx.font = '14px Segoe UI';
+        if (state === 'showing') {
+            ctx.fillStyle = '#00ccff';
+            ctx.fillText(`Watch: ${showIndex + 1}/${sequence.length}`, game.w / 2, game.h - 40);
+        } else if (state === 'input') {
+            ctx.fillStyle = '#00ff88';
+            ctx.fillText(`Your turn: ${playerIndex + 1}/${sequence.length}`, game.w / 2, game.h - 40);
+        } else if (state === 'gameover') {
+            ctx.fillStyle = '#ff4444';
+            ctx.fillText(`Game Over! Score: ${score}`, game.w / 2, game.h - 40);
+        }
+
+        // Mode buttons
+        const modes = ['classic', 'extended', 'speed'];
+        const labels = ['4 COLORS', '6 COLORS', 'SPEED'];
+        const btnW = 100;
+        const startX = game.w / 2 - (modes.length * (btnW + 10)) / 2;
+
+        modes.forEach((m, i) => {
+            const bx = startX + i * (btnW + 10);
+            const isActive = mode === m;
+            ctx.fillStyle = isActive ? '#8844ff' : '#1e1e2e';
+            ctx.fillRect(bx, game.h - 28, btnW, 22);
+            ctx.strokeStyle = '#333';
+            ctx.strokeRect(bx, game.h - 28, btnW, 22);
+            ctx.fillStyle = isActive ? '#fff' : '#666';
+            ctx.font = '11px Segoe UI';
+            ctx.textAlign = 'center';
+            ctx.fillText(labels[i], bx + btnW / 2, game.h - 13);
+        });
+        ctx.textAlign = 'left';
+
+        // Brand
+        r.text('ALGOKOSMOS.COM', game.w - 150, 15, '#444', 12);
+    }
+
+    // Mouse/touch input
+    game.canvas.addEventListener('click', e => {
+        if (state !== 'input') return;
+        const buttons = getButtonLayout();
+        const idx = hitTest(e.clientX, e.clientY, buttons);
+        if (idx >= 0) handleInput(idx);
+    });
+
+    game.canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (state !== 'input') return;
+        const touch = e.touches[0];
+        const buttons = getButtonLayout();
+        const idx = hitTest(touch.clientX, touch.clientY, buttons);
+        if (idx >= 0) handleInput(idx);
+    });
+
+    // Keyboard shortcuts (1-6 for colors)
+    document.addEventListener('keydown', e => {
+        if (state !== 'input') return;
+        const key = parseInt(e.key);
+        if (key >= 1 && key <= numColors) {
+            handleInput(key - 1);
+        }
+    });
+
+    // Mode button clicks
+    game.canvas.addEventListener('click', e => {
+        const modes = ['classic', 'extended', 'speed'];
+        const btnW = 100;
+        const startX = game.w / 2 - (modes.length * (btnW + 10)) / 2;
+        const btnY = game.h - 28;
+        const btnH = 22;
+
+        if (e.clientY >= btnY && e.clientY <= btnY + btnH) {
+            modes.forEach((m, i) => {
+                const bx = startX + i * (btnW + 10);
+                if (e.clientX >= bx && e.clientX <= bx + btnW) {
+                    mode = m;
+                    numColors = MODES[m].colors;
+                }
+            });
+        }
+    });
+
+    game.update = function(dt) {
+        if (litTimer > 0) {
+            litTimer -= dt;
+            if (litTimer <= 0) litButton = -1;
+        }
+
+        if (state === 'showing') {
+            showTimer += dt;
+            if (showTimer >= showInterval) {
+                showTimer = 0;
+                showIndex++;
+                if (showIndex >= sequence.length) {
+                    state = 'input';
+                    playerIndex = 0;
+                }
+            }
+        }
+    };
+
+    game.draw = function() {
+        r.gradientBg('#0a0a2a', '#1a0a3a');
+        drawButtons();
+        drawHUD();
+    };
+
+    // Start
+    ui.startScreen('SIMON', 'Запомни последовательность и повтори! Клавиши 1-4 или клик.', () => {
+        startGame();
+        game.start();
+    });
+    </script>
+</body>
+</html>
